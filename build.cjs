@@ -1,13 +1,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
+const vm = require("node:vm");
 
 const ROOT = __dirname;
 const DIST = path.resolve(ROOT, "dist");
 const ZIP = path.join(ROOT, "aruco-site.zip");
 const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.html", "auth.js",
   "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
-  "polygon-worker.js", "polygon.js", "polygon.css"];
+  "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
+  "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js"];
 const VENDOR_FILES = [
   ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
   ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
@@ -54,6 +56,18 @@ function makeZip(files) {
 }
 
 function build() {
+  const settings = {};
+  vm.runInNewContext(fs.readFileSync(path.join(ROOT, "cloud-config.js"), "utf8"), { window: settings }, { timeout: 1000 });
+  const fromEnvironment = Boolean(process.env.SUPABASE_URL || process.env.SUPABASE_PUBLISHABLE_KEY);
+  const cloudUrl = (fromEnvironment ? process.env.SUPABASE_URL : settings.ROI_CLOUD?.url) || "";
+  const cloudKey = (fromEnvironment ? process.env.SUPABASE_PUBLISHABLE_KEY : settings.ROI_CLOUD?.publishableKey) || "";
+  if (Boolean(cloudUrl) !== Boolean(cloudKey)) throw new Error("Set both SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY.");
+  if (cloudUrl) {
+    const parsed = new URL(cloudUrl);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/") throw new Error("SUPABASE_URL must be an HTTPS project URL without a path.");
+    const legacyRole = cloudKey.startsWith("eyJ") ? JSON.parse(Buffer.from(cloudKey.split(".")[1], "base64url")).role : null;
+    if (!cloudKey.startsWith("sb_publishable_") && legacyRole !== "anon") throw new Error("Use only the public publishable/anon key, never a secret or service_role key.");
+  }
   // Validate every input before replacing this script's generated directory.
   for (const name of [...SOURCE_FILES, ...VENDOR_FILES.map(([source]) => source)]) {
     if (!fs.existsSync(path.join(ROOT, name))) throw new Error("Missing " + name + ". Run npm.cmd install.");
@@ -70,6 +84,7 @@ function build() {
   }
   for (const name of SOURCE_FILES) {
     let content = fs.readFileSync(path.join(ROOT, name), "utf8");
+    if (name === "cloud-config.js" && cloudUrl) content = "window.ROI_CLOUD = Object.freeze(" + JSON.stringify({ url: cloudUrl, publishableKey: cloudKey }) + ");\n";
     for (const [source, target] of VENDOR_FILES.filter(([source]) => source.endsWith(".js"))) {
       content = content.split(source).join(target);
     }

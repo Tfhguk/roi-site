@@ -15,9 +15,11 @@
     "test:polygon": "node test_polygon.cjs",
     "test:server": "node test_server.cjs",
     "test:hosting": "node test_browser.cjs --dist && node test_polygon.cjs --dist",
-    "test:pages": "node test_browser.cjs --dist --subpath && node test_polygon.cjs --dist --subpath"
+    "test:pages": "node test_browser.cjs --dist --subpath && node test_polygon.cjs --dist --subpath",
+    "test:setup": "node test_setup.cjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "playwright": "^1.65.1"
   }
 }

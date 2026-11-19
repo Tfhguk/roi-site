@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Рукомаркеры — Учёт техники</title>
 <script src="node_modules/jspdf/dist/jspdf.umd.min.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud-client.js"></script>
+<script>if(AppCloud.configured)location.replace("setup.html?step=garage");</script>
 <script src="auth.js"></script>
 <script src="aruco_dict_4x4_50.js"></script>
 <script src="aruco.js"></script>

@@ -113,8 +113,30 @@
   </div>
 </main>
 
+<script src="cloud-config.js"></script>
+<script src="cloud-client.js"></script>
 <script src="auth.js"></script>
 <script>
+if (AppCloud.configured) {
+  (async function(){
+    if(!AppCloud.session()){location.replace("login.html");return;}
+    try {
+      const profile=await AppCloud.me();
+      if(profile.registration_status!=="ready"){location.replace("setup.html");return;}
+      for(const id of ["userName","helloName"])document.getElementById(id).textContent=profile.name;
+      document.getElementById("userAvatar").textContent=profile.name.slice(0,1);
+      document.getElementById("userRole").textContent=AppCloud.labels[profile.registration_status];
+      document.querySelector(".hello p").textContent="Настройка завершена. Можно изменять свой гараж, зоны, карту глубины и траектории.";
+      const steps=document.querySelector(".steps");steps.replaceChildren();
+      for(const [stage,title,text] of [["polygon","Полигон","Выбор общего полигона или создание копии границы."],["garage","Мой гараж","Ваша техника и её ArUCo-маркеры."],["zones","Рабочие зоны","Склад, зарядные станции, добыча и транспортировка."],["routes","Траектории и глубины","Изменение маршрутов и псевдокарты глубины."]]){
+        const link=document.createElement("a");link.className="step";link.href="setup.html?step="+stage;
+        const heading=document.createElement("h3");heading.textContent=title;
+        const description=document.createElement("p");description.textContent=text;link.append(heading,description);steps.append(link);
+      }
+      document.getElementById("logoutBtn").onclick=async()=>{try{await AppCloud.logout();}finally{location.href="login.html";}};
+    }catch(error){document.querySelector(".hello p").textContent=error.message;document.querySelector(".steps").replaceChildren();}
+  })();
+} else {
 var SESSION_KEY = "app_session_v1";
 
 function loadSession() { return AppAuth.loadSession(); }
@@ -133,6 +155,7 @@ document.getElementById("logoutBtn").addEventListener("click", function () {
   localStorage.removeItem(SESSION_KEY);
   window.location.href = "login.html";
 });
+}
 </script>
 </body>
 </html>

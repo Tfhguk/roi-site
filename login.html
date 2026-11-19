@@ -123,9 +123,14 @@
   </form>
 </div>
 
+<script src="cloud-config.js"></script>
+<script src="cloud-client.js"></script>
 <script src="auth.js"></script>
+<script src="cloud-login.js"></script>
 <script>
-
+if (AppCloud.configured) {
+  setupCloudLogin();
+} else {
 var USERS_KEY = AppAuth.USERS_KEY;
 var SESSION_KEY = AppAuth.SESSION_KEY;
 var authBusy = false;
@@ -230,6 +235,7 @@ var usersReady = initDefaultUsers().then(function () {
   document.getElementById("regError").textContent = error.message;
   return false;
 });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройка полигона и техники</title><link rel="stylesheet" href="setup.css">
+<script src="cloud-config.js" defer></script><script src="cloud-client.js" defer></script>
+<script src="polygon-geometry.js" defer></script><script src="setup-geometry.js" defer></script>
+<script src="aruco_dict_4x4_50.js" defer></script><script src="aruco.js" defer></script>
+<script src="node_modules/jspdf/dist/jspdf.umd.min.js" defer></script>
+<script src="setup-export.js" defer></script><script src="setup.js" defer></script></head>
+<body><header><a href="welcome.html">← Главная</a><strong>Настройка рабочего пространства</strong><span id="account"></span><button id="logout">Выйти</button></header>
+<main><nav id="steps" aria-label="Этапы регистрации"></nav>
+<div class="heading"><div><p id="registrationStatus" class="muted"></p><h1 id="title">Загрузка…</h1><p id="description"></p></div><span id="saveState" class="badge"></span></div>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="polygonTools" class="panel" hidden><div class="controls">
+<label>Общие полигоны<select id="polygonSelect"><option value="">Новый полигон</option></select></label>
+<button id="newPolygon">Новый полигон</button><button id="copyPolygon">Создать редактируемую копию</button>
+<label>Название<input id="polygonName" maxlength="100" placeholder="Название полигона"></label></div>
+<p class="muted">Сохранённые полигоны доступны другим пользователям. Их границы неизменны: для изменения создайте копию. ID рукометок выдаёт сервер.</p></section>
+<section id="garage" hidden><div class="panel"><h2>Мой гараж</h2><form id="equipmentForm" class="controls">
+<label>Название<input id="equipmentName" maxlength="100" required placeholder="Например, Самосвал 1"></label>
+<label>Тип<select id="equipmentType"><option value="truck">Самосвал</option><option value="excavator">Экскаватор</option><option value="loader">Погрузчик</option><option value="robot">Робот</option></select></label>
+<button type="submit" class="primary">Добавить технику</button></form><p class="muted">Техника видна только вашему аккаунту. Сервер назначает свободный ArUco ID в пределах выбранного полигона.</p></div><div id="equipmentList" class="cards"></div></section>
+<section id="editor"><div class="controls panel">
+<label>Основа<select id="background"><option value="grid">Пустое поле</option><option value="camera">Камера</option></select></label>
+<button id="freezeCamera" hidden>Зафиксировать кадр</button><button id="resumeCamera" hidden>Продолжить камеру</button>
+<label id="zoneKindLabel" hidden>Тип зоны<select id="zoneKind"><option value="warehouse">Склад</option><option value="charging">Зарядная станция</option><option value="mining">Зона добычи</option><option value="transport">Зона транспортировки</option></select></label>
+<button id="newShape" hidden>Новая зона</button><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button>
+<button id="deleteVertex" disabled>Удалить вершину</button><button id="clearShape">Очистить фигуру</button></div>
+<div class="workspace"><div><div class="stage"><video id="camera" autoplay playsinline muted hidden></video><canvas id="frozen" width="1000" height="700" hidden></canvas>
+<svg id="map" viewBox="0 0 1000 700" role="img" tabindex="0" aria-label="Редактор: нажмите для вершины, перетащите вершину или нажмите на ребро для вставки."></svg></div>
+<p class="muted" id="editorHint">Нажимайте для добавления вершин. Перетаскивайте рукометки; нажмите на ребро, чтобы вставить вершину. Delete удаляет выбранную вершину. Ctrl+Z отменяет действие.</p></div>
+<aside class="panel"><h2 id="listTitle">Вершины</h2><div id="shapeList"></div><div id="vertexList"></div>
+<div id="shapeProperties" hidden><label>Название<input id="shapeName" maxlength="100"></label>
+<div id="routeProperties" hidden><label>Техника<select id="routeEquipment"></select></label>
+<label>Максимальная глубина<input id="maxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label>
+<label>Максимальный перепад между ячейками<input id="maxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
+<button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside></div>
+<details id="depthPanel" class="panel" hidden><summary>Псевдокарта глубины</summary>
+<p class="muted">Глубина и перепад заданы в условных единицах. Это редактируемая модель, не измерение камеры. Красные ячейки — препятствия. Маршрут проверяется по каждой пересечённой ячейке, включая границы.</p>
+<div class="controls"><label><input id="paintMode" type="checkbox"> Рисовать глубину</label><label><input id="showDepth" type="checkbox" checked> Показывать сетку глубин</label>
+<label>Глубина кисти<input id="paintValue" type="number" min="0" max="1000" step="0.1" value="1"></label><label><input id="paintBlocked" type="checkbox"> Препятствие</label>
+<label>Столбцы<input id="depthCols" type="number" min="2" max="100" value="20"></label><label>Строки<input id="depthRows" type="number" min="2" max="100" value="14"></label><button id="resizeDepth">Новая сетка</button>
+<button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div></details>
+</section>
+<footer><button id="back">← Назад</button><button id="exportMarkers">Скачать рукомаркеры PDF</button><button id="exportWorkspace">Скачать проект JSON</button><button id="save">Сохранить на сервере</button><button id="next" class="primary">Далее →</button></footer>
+</main></body></html>

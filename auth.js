@@ -18,6 +18,10 @@
     } catch (error) { return Object.create(null); }
   }
   function loadSession() {
+    if (global.AppCloud?.configured) {
+      const user=AppCloud.session()?.user, profile=AppCloud.profile();
+      return user&&profile ? {login:user.email,id:user.id,name:profile.name,role:profile.role,registrationStatus:profile.registration_status} : null;
+    }
     try {
       const session = JSON.parse(localStorage.getItem(SESSION_KEY));
       if (!session || typeof session.login !== "string" || !session.login.trim()) return null;
