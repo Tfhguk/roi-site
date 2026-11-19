@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id), G=SetupGeometry;
   const stages=["polygon","garage","zones","routes"], kinds={warehouse:"Склад",charging:"Зарядная станция",mining:"Зона добычи",transport:"Зона транспортировки"};
   const titles={polygon:"Создайте или выберите полигон",garage:"Создайте технику в своём гараже",zones:"Обозначьте рабочие зоны",routes:"Создайте допустимые траектории"};
-  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Создайте склад, зарядную станцию, зону добычи и зону транспортировки внутри выбранного полигона.",routes:"Рисуйте пути для своей техники. Перемещайте точки, добавляйте точки на отрезках и редактируйте псевдокарту глубины."};
+  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Создайте склад, зарядную станцию, зону добычи и зону транспортировки внутри выбранного полигона.",routes:"Пути между зонами строятся автоматически по карте глубины. Редактируйте готовые траектории, перемещая точки и добавляя вершины на отрезках."};
   let profile,polygons=[],equipment=[],ws,step="polygon",selectedId=null,draft=null,selectedVertex=-1,dirty=false,busy=false;
   let stream,drag=null,painting=false,history=[];
   let noticeTimer;
@@ -83,6 +83,7 @@
     window.history.replaceState(null,"","setup.html?step="+step);
     notice("");render();
     if(step!=="garage"&&(step!=="polygon"||selectedId))openEditor();
+    if(step==="routes"&&!ws.routes.length){try{createAutoRoutes(ws.depth.cells.every(v=>v===0));}catch(error){notice(error.message,true);}}
   }
   // Do not use innerHTML for user-supplied names.
   function button(text,action,classes=""){const el=document.createElement("button");el.type="button";el.textContent=text;el.className=classes;el.onclick=()=>run(action);return el;}
@@ -108,6 +109,11 @@
     $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=Boolean(selectedId)||!draft||draft.points.length<3;
     $("clearShape").disabled=!editable();$("deleteVertex").disabled=!editable()||selectedVertex<0;
     $("depthPanel").hidden=step!=="routes";$("shapeProperties").hidden=!draft||step==="polygon";
+    $("autoRoutes").hidden=step!=="routes";
+    const plannedEquipment=$("plannerEquipment").value;
+    $("plannerEquipment").replaceChildren(new Option("Вся моя техника",""),...ownEquipment().map(e=>new Option(e.name,e.id)));
+    if(ownEquipment().some(e=>e.id===plannedEquipment))$("plannerEquipment").value=plannedEquipment;
+    $("depthSource").textContent=ws.depth.source==="synthetic"?"Тестовая карта · seed "+ws.depth.seed:"Карта проекта";
     $("routeProperties").hidden=step!=="routes";$("listTitle").textContent=step==="polygon"?"Вершины":step==="zones"?"Зоны":"Траектории";
     $("next").textContent=step==="routes"?"Завершить настройку ✓":"Далее →";$("back").disabled=step==="polygon";
     $("save").hidden=step==="garage";$("copyPolygon").disabled=!selectedId;
@@ -255,6 +261,29 @@
     draft=null;selectedVertex=-1;changed();render();
   }
   $("applyShape").onclick=()=>run(applyDraft);
+  function createAutoRoutes(newMap=false){
+    if(draft)throw Error("Сначала сохраните редактируемую фигуру в проект.");
+    const depth=newMap?G.generateDepth(boundary(),ws.zones,crypto.getRandomValues(new Uint32Array(1))[0]):ws.depth;
+    const vehicles=ownEquipment().filter(e=>!$("plannerEquipment").value||e.id===$("plannerEquipment").value);
+    const result=G.planRoutes(boundary(),ws.zones,vehicles,depth,{maxDepth:Number($("plannerMaxDepth").value),maxSlope:Number($("plannerMaxSlope").value)});
+    if(!result.routes.length)throw Error("Нет допустимого прохода между зонами при заданной глубине и перепаде. Проверьте карту и увеличьте разрешение сетки при узких проходах. "+result.unreachable.slice(0,5).join("; "));
+    const routes=result.routes.map(route=>({...route,id:uid(),points:route.points.map(p=>({...p,id:uid()}))}));
+    // Changing one vehicle keeps every other vehicle's edited routes.
+    const retained=$("plannerEquipment").value?ws.routes.filter(route=>route.equipmentId!==$("plannerEquipment").value):[];
+    if(routes.length+retained.length>30)throw Error("Максимум 30 траекторий в проекте. Удалите ненужные пути перед построением.");
+    snapshot();ws.depth=depth;ws.routes=[...retained,...routes];selectedVertex=-1;$("paintMode").checked=false;
+    $("depthCols").value=depth.cols;$("depthRows").value=depth.rows;changed();render();
+    notice((newMap?"Тестовая карта создана. ":"")+"Построено траекторий: "+routes.length+". Их можно редактировать и сохранить на сервере."+
+      (result.unreachable.length?"\nНет прохода: "+result.unreachable.slice(0,5).join("; ")+". Проверьте препятствия и ограничения.":""),Boolean(result.unreachable.length));
+  }
+  $("autoRoutes").onclick=()=>run(()=>{
+    if(ws.routes.length&&!confirm("Перестроить траектории выбранной техники по текущей карте? Их ручные изменения будут заменены. Другие пути сохранятся."))return;
+    createAutoRoutes();
+  });
+  $("generateDepth").onclick=()=>run(()=>{
+    if((ws.routes.length||ws.depth.cells.some(v=>v!==0))&&!confirm("Создать новую тестовую карту и перестроить траектории выбранной техники? Текущая карта и ручные изменения этих путей будут заменены."))return;
+    createAutoRoutes(true);
+  });
   for(const id of ["shapeName","maxDepth","maxSlope","routeEquipment"])$(id).addEventListener("input",()=>{if(!draft)return;draft.name=$("shapeName").value;draft.maxDepth=Number($("maxDepth").value);draft.maxSlope=Number($("maxSlope").value);draft.equipmentId=$("routeEquipment").value;changed();});
   $("equipmentForm").onsubmit=event=>{event.preventDefault();run(async()=>{await AppCloud.rpc("create_equipment",{p_name:$("equipmentName").value,p_type:$("equipmentType").value});$("equipmentName").value="";equipment=await AppCloud.equipment();render();notice("Техника сохранена на сервере.");});};
   async function save(){

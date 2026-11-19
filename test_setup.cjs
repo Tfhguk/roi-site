@@ -23,6 +23,28 @@ function geometryTests(){
   assert(!G.validPoints(points([[0,0],[100,100],[0,100],[100,0]])));
   assert.throws(()=>G.validateDepth({...depth,cells:[1]}));
   assert.throws(()=>G.validateDepth({...depth,cells:depth.cells.map(()=>-1)}));
+  const start={x:125,y:325},end={x:875,y:325},barrier=G.emptyDepth();
+  for(let row=0;row<barrier.rows;row++)barrier.cells[row*barrier.cols+10]=null;
+  assert.equal(G.findPath(start,end,boundary,barrier),null,'A solid wall must be unreachable');
+  barrier.cells[3*20+10]=0;
+  const detour=G.findPath(start,end,boundary,barrier);assert(detour&&detour.length>2,'A* takes a detour through the gap');
+  assert.deepEqual(G.routeErrors({points:detour,maxDepth:5,maxSlope:2},boundary,barrier),[]);
+  const cliff=G.emptyDepth();for(let row=0;row<cliff.rows;row++)cliff.cells[row*20+10]=3;
+  assert.equal(G.findPath(start,end,boundary,cliff),null,'A* obeys slope constraints');
+  assert(G.findPath(start,end,boundary,cliff,{maxSlope:3}));
+  assert.equal(G.findPath(start,end,boundary,cliff,{maxDepth:2,maxSlope:3}),null,'A* obeys depth limits');
+  const concavePath=G.findPath({x:225,y:525},{x:775,y:525},concave,G.emptyDepth());
+  assert(concavePath&&G.inPolygon(concavePath,concave,false),'A* stays inside concave polygons');
+  const zones=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[300,380],[500,380],[500,480],[300,480]]]].map(([kind,coords],i)=>({id:'zone-'+i,name:kind,kind,points:points(coords)}));
+  const vehicle={id:'truck',name:'Truck'},terrainBoundary=points([[100,100],[900,100],[900,600],[100,600]]);
+  for(const seed of [1,2,3,4,5,12345,23456]){
+    const map=G.generateDepth(terrainBoundary,zones,seed);assert.deepEqual(map,G.generateDepth(terrainBoundary,zones,seed),'Seed reproduces the map');
+    assert(map.cells.includes(null)&&map.cells.some(v=>v>0));assert.equal(G.validateDepth(map).seed,seed);
+    const planned=G.planRoutes(terrainBoundary,zones,[vehicle],map);assert.equal(planned.routes.length,3,'Three default connections for seed '+seed);assert.deepEqual(planned.unreachable,[]);
+    for(const route of planned.routes)assert.deepEqual(G.routeErrors(route,terrainBoundary,map),[]);
+  }
+  assert.throws(()=>G.planRoutes(terrainBoundary,zones,Array(11).fill(vehicle),G.emptyDepth()),/30/);
+  console.log('PASS planner: reproducible terrain, A* detours, impassable walls, depth/slope limits, concave boundaries and zone connections.');
   console.log('PASS geometry: concave boundary, thin and edge-adjacent obstacles, depth, cell jumps, invalid maps.');
 }
 
@@ -127,7 +149,31 @@ async function main(){
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
     const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[300,380],[500,380],[500,480],[300,480]]]];
     for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#applyShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
+    await page.evaluate(()=>{crypto.getRandomValues=array=>{array[0]=12345;return array;};});
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('depthPanel').hidden);
+    assert.equal(await page.locator('#shapeList .item').count(),3,'First visit creates routes automatically');
+    assert(!/препятствие|Превышен|выходит/.test(await page.locator('#validation').innerText()));
+    const autoDownload=page.waitForEvent('download');await page.locator('#exportWorkspace').click();await(await autoDownload).saveAs(path.join(output,'auto-routes.json'));
+    const autoProject=JSON.parse(fs.readFileSync(path.join(output,'auto-routes.json'),'utf8'));assert.equal(autoProject.depth.seed,12345);assert.equal(autoProject.routes.length,3);
+    for(const route of autoProject.routes)assert.deepEqual(G.routeErrors(route,autoProject.polygon.geometry.points,autoProject.depth),[]);
+    await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
+    const firstPath=autoProject.routes[0].points;await clickAt((firstPath[0].x+firstPath[1].x)/2,(firstPath[0].y+firstPath[1].y)/2);
+    assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
+    await page.locator('#applyShape').click();await page.locator('#save').click();
+    const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,3);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
+    assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Server independently accepts generated and edited paths');
+    await page.reload();await page.locator('#autoRoutes').waitFor();assert.equal(await page.locator('#shapeList .item').count(),3,'Saved automatic routes survive reload');
+    await page.locator('#depthPanel summary').click();await page.locator('#plannerMaxDepth').fill('0');await page.locator('#autoRoutes').click();
+    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Нет допустимого прохода'));assert.equal(await page.locator('#shapeList .item').count(),3,'Failed rebuilding preserves edited routes');
+    await page.locator('#plannerMaxDepth').fill('5');await page.locator('#autoRoutes').click();await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Построено траекторий: 3'));
+    await page.evaluate(()=>{crypto.getRandomValues=array=>{array[0]=23456;return array;};});await page.locator('#generateDepth').click();
+    await page.waitForFunction(()=>document.getElementById('depthSource').textContent.includes('23456'));assert.equal(await page.locator('#shapeList .item').count(),3);
+    await page.screenshot({path:path.join(output,'setup-auto-routes.png')});
+    await page.locator('#dismissNotification').click();
+    while(await page.locator('#shapeList .item').count()){const count=await page.locator('#shapeList .item').count();await page.locator('#shapeList .danger').first().click();await page.waitForFunction(n=>document.querySelectorAll('#shapeList .item').length===n-1,count);}
+    fs.writeFileSync(path.join(output,'flat-depth.json'),JSON.stringify(G.emptyDepth()));await page.locator('#importDepth').setInputFiles(path.join(output,'flat-depth.json'));
+    await page.waitForFunction(()=>document.getElementById('depthCols').value==='20');
+    await page.locator('#depthPanel summary').click();
     await page.locator('#newShape').click();await clickAt(150,550);await clickAt(850,550);await page.locator('#applyShape').click();
     await page.locator('#depthPanel summary').click();await page.locator('#paintMode').check();await page.locator('#paintBlocked').check();await clickAt(525,575);
     assert.match(await page.locator('#validation').innerText(),/препятствие/);
@@ -169,7 +215,7 @@ async function main(){
     await assert.rejects(rpc(alice.id,'create_equipment',['Overflow','robot']),/50 ArUCo/);
     assert.equal((await asUser(alice.id,'select count(*)::int as count from public.marker_reservations')).rows[0].count,50);
     console.log('PASS PostgreSQL: registration trigger, persisted statuses, shared immutable polygons, private equipment/workspaces, distinct marker reservations, revision conflicts, server route validation, RLS and prohibited status updates.');
-    console.log('PASS browser: viewport-fitted drawing window on desktop/mobile/landscape, fixed navigation, retained draft, error notifications, blank-name validation and database error translation; two accounts, full onboarding, camera/grid switch, edge insertion and dragging, personal garage, SVG/PDF, four zone types, blocked route, depth JSON import/export, completed registration. No JavaScript errors.');
+    console.log('PASS browser: automatic terrain and zone routes, editable generated paths, PostgreSQL validation and persistence after reload, regeneration; viewport-fitted drawing window on desktop/mobile/landscape, fixed navigation, retained draft, notifications and name validation; two accounts, full onboarding, camera, garage, PDF, zones, blocked route, depth JSON and completed registration. No JavaScript errors.');
   }catch(error){
     if(browser)for(const context of browser.contexts())for(const page of context.pages()){
       console.error('BROWSER FAILURE',page.url(),(await page.locator('body').innerText()).slice(-4500));

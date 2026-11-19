@@ -26,7 +26,7 @@
 <label>Основа<select id="background"><option value="grid">Пустое поле</option><option value="camera">Камера</option></select></label>
 <button id="freezeCamera" hidden>Зафиксировать кадр</button><button id="resumeCamera" hidden>Продолжить камеру</button>
 <label id="zoneKindLabel" hidden>Тип зоны<select id="zoneKind"><option value="warehouse">Склад</option><option value="charging">Зарядная станция</option><option value="mining">Зона добычи</option><option value="transport">Зона транспортировки</option></select></label>
-<button id="newShape" hidden>Новая зона</button><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button>
+<button id="newShape" hidden>Новая зона</button><button id="autoRoutes" class="primary" hidden>Построить автоматически</button><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button>
 <button id="deleteVertex" disabled>Удалить вершину</button><button id="clearShape">Очистить фигуру</button></div>
 <div class="workspace"><div class="canvas-panel"><div class="canvas-fit" id="canvasFit"><div class="stage"><video id="camera" autoplay playsinline muted hidden></video><canvas id="frozen" width="1000" height="700" hidden></canvas>
 <svg id="map" viewBox="0 0 1000 700" role="img" tabindex="0" aria-label="Редактор: нажмите для вершины, перетащите вершину или нажмите на ребро для вставки."></svg></div></div>
@@ -37,7 +37,11 @@
 <label>Максимальная глубина<input id="maxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label>
 <label>Максимальный перепад между ячейками<input id="maxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
 <button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside></div>
-<details id="depthPanel" class="panel" hidden><summary>Псевдокарта глубины</summary>
+<details id="depthPanel" class="panel" hidden><summary>Карта глубины и автопостроение</summary>
+<div class="controls"><button id="generateDepth" class="primary">Сгенерировать тестовую карту и пути</button><span id="depthSource" class="muted"></span>
+<label>Техника<select id="plannerEquipment"><option value="">Вся моя техника</option></select></label>
+<label>Допустимая глубина<input id="plannerMaxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label><label>Допустимый перепад<input id="plannerMaxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
+<p class="muted">Автопостроение: добыча → склад, склад → транспортировка и зарядка. Изменяйте готовые пути через «Изменить»: двигайте вершины и добавляйте точки на отрезках. После изменения карты нажмите «Построить автоматически» или исправьте пути вручную.</p>
 <p class="muted">Глубина и перепад заданы в условных единицах. Это редактируемая модель, не измерение камеры. Красные ячейки — препятствия. Маршрут проверяется по каждой пересечённой ячейке, включая границы.</p>
 <div class="controls"><label><input id="paintMode" type="checkbox"> Рисовать глубину</label><label><input id="showDepth" type="checkbox" checked> Показывать сетку глубин</label>
 <label>Глубина кисти<input id="paintValue" type="number" min="0" max="1000" step="0.1" value="1"></label><label><input id="paintBlocked" type="checkbox"> Препятствие</label>
