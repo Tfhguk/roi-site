@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "js-aruco2": "^2.0.0",
+    "jspdf": "^4.2.1",
+    "selfsigned": "^5.5.0"
+  },
+  "name": "equipment-aruco",
+  "private": true,
+  "scripts": {
+    "start": "node server.cjs",
+    "build": "node build.cjs",
+    "generate": "python generate_dict.py",
+    "test": "python test.py",
+    "test:browser": "node test_browser.cjs",
+    "test:polygon": "node test_polygon.cjs",
+    "test:server": "node test_server.cjs",
+    "test:hosting": "node test_browser.cjs --dist && node test_polygon.cjs --dist",
+    "test:pages": "node test_browser.cjs --dist --subpath && node test_polygon.cjs --dist --subpath"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  }
+}

@@ -1,0 +1,89 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const zlib = require("node:zlib");
+
+const ROOT = __dirname;
+const DIST = path.resolve(ROOT, "dist");
+const ZIP = path.join(ROOT, "aruco-site.zip");
+const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.html", "auth.js",
+  "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
+  "polygon-worker.js", "polygon.js", "polygon.css"];
+const VENDOR_FILES = [
+  ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
+  ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
+  ["node_modules/js-aruco2/src/aruco.js", "assets/vendor/aruco-detector.js"],
+  ["node_modules/jspdf/LICENSE", "assets/vendor/LICENSE-jspdf.txt"],
+  ["node_modules/js-aruco2/LICENSE.txt", "assets/vendor/LICENSE-js-aruco2.txt"]
+];
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  return value >>> 0;
+});
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function makeZip(files) {
+  const local = [], central = [];
+  let offset = 0;
+  for (const name of files) {
+    const filename = Buffer.from(name, "utf8"), bytes = fs.readFileSync(path.join(DIST, name));
+    const compressed = zlib.deflateRawSync(bytes), crc = crc32(bytes);
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0); header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(0x800, 6); header.writeUInt16LE(8, 8); header.writeUInt16LE(33, 12);
+    header.writeUInt32LE(crc, 14); header.writeUInt32LE(compressed.length, 18);
+    header.writeUInt32LE(bytes.length, 22); header.writeUInt16LE(filename.length, 26);
+    local.push(header, filename, compressed);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0); entry.writeUInt16LE(20, 4); entry.writeUInt16LE(20, 6);
+    entry.writeUInt16LE(0x800, 8); entry.writeUInt16LE(8, 10); entry.writeUInt16LE(33, 14);
+    entry.writeUInt32LE(crc, 16); entry.writeUInt32LE(compressed.length, 20);
+    entry.writeUInt32LE(bytes.length, 24); entry.writeUInt16LE(filename.length, 28);
+    entry.writeUInt32LE(offset, 42);
+    central.push(entry, filename);
+    offset += header.length + filename.length + compressed.length;
+  }
+  const directory = Buffer.concat(central), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  fs.writeFileSync(ZIP, Buffer.concat([...local, directory, end]));
+}
+
+function build() {
+  // Validate every input before replacing this script's generated directory.
+  for (const name of [...SOURCE_FILES, ...VENDOR_FILES.map(([source]) => source)]) {
+    if (!fs.existsSync(path.join(ROOT, name))) throw new Error("Missing " + name + ". Run npm.cmd install.");
+  }
+  if (path.dirname(DIST) !== path.resolve(ROOT) || path.basename(DIST) !== "dist") throw new Error("Invalid output directory");
+  if (fs.existsSync(DIST) && fs.lstatSync(DIST).isSymbolicLink()) throw new Error("Output directory must not be a symbolic link");
+  fs.rmSync(DIST, { recursive: true, force: true });
+  fs.mkdirSync(DIST, { recursive: true });
+  const files = [];
+  function write(name, data) {
+    fs.mkdirSync(path.dirname(path.join(DIST, name)), { recursive: true });
+    fs.writeFileSync(path.join(DIST, name), data);
+    files.push(name);
+  }
+  for (const name of SOURCE_FILES) {
+    let content = fs.readFileSync(path.join(ROOT, name), "utf8");
+    for (const [source, target] of VENDOR_FILES.filter(([source]) => source.endsWith(".js"))) {
+      content = content.split(source).join(target);
+    }
+    write(name, content);
+  }
+  write("index.html", fs.readFileSync(path.join(DIST, "login.html")));
+  for (const [source, target] of VENDOR_FILES) write(target, fs.readFileSync(path.join(ROOT, source)));
+  write("_headers", "/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(self), microphone=()\n/*.html\n  Cache-Control: no-cache\n/*.js\n  Cache-Control: no-cache\n");
+  makeZip(files.sort());
+  console.log("Ready: " + DIST + " (" + files.length + " public files)");
+  console.log("Upload: " + ZIP + " (" + Math.round(fs.statSync(ZIP).size / 1024) + " KB)");
+}
+
+if (require.main === module) {
+  try { build(); } catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+module.exports = { build };

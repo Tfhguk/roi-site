@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Вход — Учёт техники</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449;
+    --accent:#38bdf8; --green:#22c55e; --red:#ef4444;
+    --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; color:var(--text);
+    background:radial-gradient(1200px 600px at 50% -10%,#1e3a5f 0%,var(--bg) 55%);
+    font-family:"Segoe UI",system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .hidden{display:none !important;}
+  .box{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--border); border-radius:16px;
+    padding:32px; width:100%; max-width:400px;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);
+  }
+  .box h1{margin:0 0 6px; font-size:1.4rem;}
+  .box p{color:var(--muted); font-size:.85rem; margin:0 0 20px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:.75rem; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px;}
+  .field input,.field select{
+    width:100%; padding:11px 13px; border-radius:10px;
+    background:#0a1120; border:1px solid var(--border); color:var(--text);
+    font-size:.95rem;
+  }
+  .field input:focus,.field select:focus{outline:none; border-color:var(--accent);}
+  .btn{
+    border:1px solid var(--border); background:linear-gradient(180deg,#334155,#263244);
+    color:var(--text); font-weight:600; padding:11px 16px; border-radius:10px;
+    cursor:pointer; font-size:.9rem; transition:all .15s;
+  }
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:scale(.97);}
+  .btn.primary{background:linear-gradient(180deg,#0ea5e9,#0284c7); border-color:var(--accent);}
+  .btn.success{background:linear-gradient(180deg,#16a34a,#15803d); border-color:var(--green);}
+  .btn.full{width:100%;}
+  .error{color:var(--red); font-size:.85rem; margin-top:10px; min-height:1.2em;}
+  .ok{color:var(--green); font-size:.85rem; margin-top:10px; min-height:1.2em;}
+  .hint{color:var(--muted); font-size:.75rem; margin-top:14px; line-height:1.5;}
+  .tabs{display:flex; gap:8px; margin-bottom:18px;}
+  .tab{
+    flex:1; text-align:center; padding:9px 12px; border-radius:10px;
+    cursor:pointer; font-size:.85rem; font-weight:600;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+  }
+  .tab.active{background:rgba(56,189,248,.12); border-color:var(--accent); color:var(--accent);}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+</style>
+</head>
+<body>
+
+<div class="box">
+  <h1 id="formTitle">🔐 Вход</h1>
+  <p id="formSubtitle">Учёт техники</p>
+
+  <div class="tabs">
+    <button class="tab active" id="tabLogin">Вход</button>
+    <button class="tab" id="tabRegister">Регистрация</button>
+  </div>
+
+  <!-- ВХОД -->
+  <form id="loginForm" autocomplete="on">
+    <div class="field">
+      <label>Логин</label>
+      <input id="loginUser" autocomplete="username" placeholder="admin / operator / master">
+    </div>
+    <div class="field">
+      <label>Пароль</label>
+      <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••••">
+    </div>
+    <button type="submit" class="btn primary full">Войти</button>
+    <div class="error" id="loginError"></div>
+    <div class="hint">
+      Демо-пользователи:<br>
+      <b>admin</b> / admin123<br>
+      <b>operator</b> / op123<br>
+      <b>master</b> / master123
+    </div>
+  </form>
+
+  <!-- РЕГИСТРАЦИЯ -->
+  <form id="registerForm" class="hidden" autocomplete="off">
+    <div class="row2">
+      <div class="field">
+        <label>Логин</label>
+        <input id="regLogin" placeholder="3–32 символа">
+      </div>
+      <div class="field">
+        <label>Имя</label>
+        <input id="regName" placeholder="Иван Петров">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Пароль</label>
+        <input id="regPass" type="password" placeholder="≥ 6 символов">
+      </div>
+      <div class="field">
+        <label>Повторите</label>
+        <input id="regPass2" type="password" placeholder="••••••">
+      </div>
+    </div>
+    <div class="field">
+      <label>Роль</label>
+      <select id="regRole">
+        <option value="operator">Оператор</option>
+        <option value="master">Мастер</option>
+      </select>
+    </div>
+    <button type="submit" class="btn success full">Создать и перейти к этапам</button>
+    <div class="error" id="regError"></div>
+    <div class="ok" id="regOk"></div>
+  </form>
+</div>
+
+<script src="auth.js"></script>
+<script>
+
+var USERS_KEY = AppAuth.USERS_KEY;
+var SESSION_KEY = AppAuth.SESSION_KEY;
+var authBusy = false;
+var DEFAULT_USERS = {
+  admin: { name: "Администратор", role: "admin", pass: "admin123" },
+  operator: { name: "Оператор", role: "operator", pass: "op123" },
+  master: { name: "Мастер", role: "master", pass: "master123" }
+};
+async function sha256(text) {
+  if (!globalThis.crypto || !crypto.subtle) {
+    throw new Error("Для входа откройте приложение через http://localhost:8000 или HTTPS.");
+  }
+  var hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, "0")).join("");
+}
+function loadUsers() { return AppAuth.loadUsers(); }
+function saveUsers(users) { localStorage.setItem(USERS_KEY, JSON.stringify(users)); }
+async function initDefaultUsers() {
+  if (Object.keys(loadUsers()).length > 0) return;
+  var defaults = Object.create(null);
+  for (var login of Object.keys(DEFAULT_USERS)) {
+    var user = DEFAULT_USERS[login];
+    defaults[login] = { name: user.name, role: user.role,
+      passHash: await sha256(user.pass), created: new Date().toISOString() };
+  }
+  // Another tab may have completed setup while hashes were being calculated.
+  if (Object.keys(loadUsers()).length === 0) saveUsers(defaults);
+}
+var tabLogin = document.getElementById("tabLogin");
+var tabRegister = document.getElementById("tabRegister");
+var loginForm = document.getElementById("loginForm");
+var registerForm = document.getElementById("registerForm");
+var formTitle = document.getElementById("formTitle");
+var formSubtitle = document.getElementById("formSubtitle");
+function showTab(which) {
+  var login = which === "login";
+  tabLogin.classList.toggle("active", login);
+  tabRegister.classList.toggle("active", !login);
+  loginForm.classList.toggle("hidden", !login);
+  registerForm.classList.toggle("hidden", login);
+  formTitle.textContent = login ? "🔐 Вход" : "📝 Регистрация";
+  formSubtitle.textContent = login ? "Учёт техники" : "Создайте новый аккаунт";
+  ["loginError", "regError", "regOk"].forEach(id => document.getElementById(id).textContent = "");
+}
+tabLogin.addEventListener("click", () => showTab("login"));
+tabRegister.addEventListener("click", () => showTab("register"));
+function enter(login, user) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ login: login, name: user.name, role: user.role }));
+  window.location.href = "welcome.html";
+}
+function submitHandler(errorId, action) {
+  return async function (event) {
+    event.preventDefault();
+    if (authBusy) return;
+    authBusy = true;
+    var errEl = document.getElementById(errorId);
+    errEl.textContent = "";
+    var buttons = document.querySelectorAll('button[type="submit"]');
+    buttons.forEach(button => button.disabled = true);
+    try {
+      if (!await usersReady) throw new Error("Не удалось подготовить вход. Проверьте локальное хранилище и откройте http://localhost:8000.");
+      await action();
+    } catch (error) {
+      errEl.textContent = error.message || "Ошибка входа. Проверьте локальное хранилище браузера.";
+    } finally {
+      authBusy = false;
+      buttons.forEach(button => button.disabled = false);
+    }
+  };
+}
+loginForm.addEventListener("submit", submitHandler("loginError", async function () {
+  var login = document.getElementById("loginUser").value.trim();
+  var password = document.getElementById("loginPass").value;
+  if (!login || !password) throw new Error("Введите логин и пароль");
+  var user = loadUsers()[login];
+  if (!user || await sha256(password) !== user.passHash) throw new Error("Неверный логин или пароль");
+  enter(login, user);
+}));
+registerForm.addEventListener("submit", submitHandler("regError", async function () {
+  var login = document.getElementById("regLogin").value.trim();
+  var name = document.getElementById("regName").value.trim();
+  var password = document.getElementById("regPass").value;
+  var repeat = document.getElementById("regPass2").value;
+  var role = document.getElementById("regRole").value;
+  if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(login)) throw new Error("Логин: 3–32 символа, латиница, цифры, _ . -");
+  if (!name) throw new Error("Введите имя");
+  if (password.length < 6) throw new Error("Пароль: не менее 6 символов");
+  if (password !== repeat) throw new Error("Пароли не совпадают");
+  if (!["operator", "master"].includes(role)) throw new Error("Выберите допустимую роль");
+  var hash = await sha256(password);
+  var users = loadUsers();
+  if (Object.hasOwn(users, login)) throw new Error("Такой логин уже занят");
+  users[login] = { passHash: hash, name: name, role: role, created: new Date().toISOString() };
+  saveUsers(users);
+  enter(login, users[login]);
+}));
+var usersReady = initDefaultUsers().then(function () {
+  if (AppAuth.loadSession()) window.location.href = "welcome.html";
+  return true;
+}).catch(function (error) {
+  document.getElementById("loginError").textContent = error.message;
+  document.getElementById("regError").textContent = error.message;
+  return false;
+});
+</script>
+</body>
+</html>

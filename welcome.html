@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Этапы — Учёт техники</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449;
+    --accent:#38bdf8; --green:#22c55e; --red:#ef4444;
+    --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; color:var(--text);
+    background:radial-gradient(1200px 600px at 50% -10%,#1e3a5f 0%,var(--bg) 55%);
+    font-family:"Segoe UI",system-ui,sans-serif;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 24px; background:rgba(15,23,42,.85); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--border); position:sticky; top:0; z-index:10;
+    gap:12px; flex-wrap:wrap;
+  }
+  header h1{font-size:1.1rem; margin:0;}
+  .user-info{display:flex; align-items:center; gap:10px; font-size:.85rem;}
+  .user-info .avatar{
+    width:32px; height:32px; border-radius:50%;
+    background:linear-gradient(135deg,#0ea5e9,#8b5cf6);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:.8rem;
+  }
+  .btn{
+    border:1px solid var(--border); background:linear-gradient(180deg,#334155,#263244);
+    color:var(--text); font-weight:600; padding:11px 16px; border-radius:10px;
+    cursor:pointer; font-size:.9rem; transition:all .15s;
+  }
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:scale(.97);}
+  .btn.primary{background:linear-gradient(180deg,#0ea5e9,#0284c7); border-color:var(--accent);}
+
+  main{max-width:1000px; margin:0 auto; padding:32px 24px;}
+  .hello{margin-bottom:28px;}
+  .hello h2{margin:0 0 6px; font-size:1.5rem;}
+  .hello p{color:var(--muted); margin:0; font-size:.95rem;}
+
+  .steps{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
+    gap:16px;
+  }
+  .step{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--border); border-radius:16px;
+    padding:22px; display:flex; flex-direction:column; gap:10px;
+    text-decoration:none; color:var(--text);
+    transition:transform .15s, border-color .2s, box-shadow .2s;
+  }
+  .step:hover{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(56,189,248,.12);
+    transform:translateY(-2px);
+  }
+  .step .icon{font-size:2rem;}
+  .step h3{margin:0; font-size:1.05rem;}
+  .step p{margin:0; color:var(--muted); font-size:.85rem; line-height:1.5; flex:1;}
+  .step .go{
+    align-self:flex-start; margin-top:6px;
+    color:var(--accent); font-size:.85rem; font-weight:600;
+  }
+  @media(max-width:600px){
+    main{padding:20px 16px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 Учёт техники — этапы</h1>
+  <div class="user-info">
+    <div class="avatar" id="userAvatar">?</div>
+    <div>
+      <div id="userName" style="font-weight:600;"></div>
+      <div id="userRole" style="color:var(--muted); font-size:.75rem;"></div>
+    </div>
+    <button class="btn" id="logoutBtn">Выйти</button>
+  </div>
+</header>
+
+<main>
+  <div class="hello">
+    <h2>Здравствуйте, <span id="helloName">—</span></h2>
+    <p>Выберите этап работы. Каждый этап — отдельный раздел приложения.</p>
+  </div>
+
+  <div class="steps">
+
+    <!-- ЭТАП 1: РУКОМАРКЕРЫ -->
+    <a class="step" href="markers.html">
+      <div class="icon">🎯</div>
+      <h3>Создание рукомаркеров</h3>
+      <p>Генерация OpenCV ArUco 4×4 (ID 0–49), привязка к технике, экспорт таблицы в PDF.</p>
+      <span class="go">Перейти →</span>
+    </a>
+
+    <a class="step" href="polygon.html">
+      <div class="icon">⬡</div>
+      <h3>Границы полигона</h3>
+      <p>Камера, поиск рукометок по клику и построение многоугольника через их центры.</p>
+      <span class="go">Перейти →</span>
+    </a>
+
+  </div>
+</main>
+
+<script src="auth.js"></script>
+<script>
+var SESSION_KEY = "app_session_v1";
+
+function loadSession() { return AppAuth.loadSession(); }
+
+var sess = loadSession();
+if (!sess || !sess.login) {
+  window.location.href = "login.html";
+} else {
+  document.getElementById("userName").textContent = sess.name;
+  document.getElementById("userRole").textContent = sess.role;
+  document.getElementById("userAvatar").textContent = sess.name.substring(0,1).toUpperCase();
+  document.getElementById("helloName").textContent = sess.name;
+}
+
+document.getElementById("logoutBtn").addEventListener("click", function () {
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = "login.html";
+});
+</script>
+</body>
+</html>

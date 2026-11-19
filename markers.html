@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Рукомаркеры — Учёт техники</title>
+<script src="node_modules/jspdf/dist/jspdf.umd.min.js"></script>
+<script src="auth.js"></script>
+<script src="aruco_dict_4x4_50.js"></script>
+<script src="aruco.js"></script>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449;
+    --accent:#38bdf8; --green:#22c55e; --red:#ef4444;
+    --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; color:var(--text);
+    background:radial-gradient(1200px 600px at 50% -10%,#1e3a5f 0%,var(--bg) 55%);
+    font-family:"Segoe UI",system-ui,sans-serif;
+  }
+  .hidden{display:none !important;}
+  #appScreen{display:flex; flex-direction:column; min-height:100vh;}
+  header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:rgba(15,23,42,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;gap:12px;flex-wrap:wrap;}
+  header h1{font-size:1.1rem;margin:0;}
+  .header-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .user-info{display:flex;align-items:center;gap:10px;font-size:.85rem;}
+  .user-info .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;}
+  main{flex:1;padding:24px;max-width:1100px;margin:0 auto;width:100%;}
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+  .toolbar select{padding:9px 12px;border-radius:10px;background:#0a1120;border:1px solid var(--border);color:var(--text);font-size:.9rem;}
+  .toolbar .spacer{flex:1;}
+  .counter{background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.4);color:var(--accent);padding:8px 14px;border-radius:10px;font-size:.85rem;font-weight:600;}
+  .btn{border:1px solid var(--border);background:linear-gradient(180deg,#334155,#263244);color:var(--text);font-weight:600;padding:11px 16px;border-radius:10px;cursor:pointer;font-size:.9rem;transition:all .15s;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:scale(.97);}
+  .btn.primary{background:linear-gradient(180deg,#0ea5e9,#0284c7);border-color:var(--accent);}
+  .btn.success{background:linear-gradient(180deg,#16a34a,#15803d);border-color:var(--green);}
+  .btn.danger{background:linear-gradient(180deg,#dc2626,#b91c1c);border-color:var(--red);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+  .files-list{display:flex;flex-direction:column;gap:10px;}
+  .file-card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;transition:border-color .2s,box-shadow .2s;}
+  .file-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(56,189,248,.25);}
+  .file-card .check{width:22px;height:22px;cursor:pointer;accent-color:var(--accent);flex-shrink:0;}
+  .file-card .info{flex:1;min-width:180px;}
+  .file-card .info h3{margin:0 0 3px;font-size:.95rem;}
+  .file-card .info small{color:var(--muted);font-size:.75rem;}
+  .file-card .actions{display:flex;gap:8px;}
+  .file-card .thumb{width:56px;height:56px;border-radius:6px;background:#fff;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+  .file-card .thumb img{width:100%;height:100%;display:block;}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto;z-index:100;}
+  .modal-content{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);border-radius:16px;width:100%;max-width:640px;padding:24px;}
+  .modal-content h2{margin:0 0 16px;font-size:1.1rem;}
+  .canvas-wrap{position:relative;background:#fff;border-radius:10px;overflow:hidden;margin-bottom:14px;display:flex;justify-content:center;align-items:center;padding:16px;min-height:200px;}
+  #markerContainer{width:320px;max-width:100%;}
+  #markerContainer svg{display:block;max-width:100%;height:auto;}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:.75rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;}
+  .field input,.field select{width:100%;padding:11px 13px;border-radius:10px;background:#0a1120;border:1px solid var(--border);color:var(--text);font-size:.95rem;}
+  .field input:focus,.field select:focus{outline:none;border-color:var(--accent);}
+  @media(max-width:600px){main{padding:16px;}.toolbar .spacer{display:none;}.btn{font-size:.85rem;padding:10px 14px;}.row2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div id="appScreen">
+  <header>
+    <div class="header-left">
+      <a href="welcome.html" class="btn">← К этапам</a>
+      <h1>🎯 Рукомаркеры</h1>
+    </div>
+    <div class="user-info">
+      <div class="avatar" id="userAvatar">?</div>
+      <div>
+        <div id="userName" style="font-weight:600;"></div>
+        <div id="userRole" style="color:var(--muted);font-size:.75rem;"></div>
+      </div>
+      <button class="btn" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <select id="techFilter" aria-label="Фильтр по технике">
+        <option value="">Все техники</option>
+        <option value="bulldozer">Бульдозер</option>
+        <option value="dump">Самосвал</option>
+        <option value="loader">Погрузчик</option>
+      </select>
+      <button class="btn" id="selectAllBtn">☑ Все</button>
+      <button class="btn" id="clearSelBtn">☐ Снять</button>
+      <div class="spacer"></div>
+      <div class="counter" id="selCounter">Выбрано: 0</div>
+      <button class="btn success" id="downloadTableBtn" disabled>⬇ PDF выбранных</button>
+      <button class="btn primary" id="newFileBtn">+ Новый маркер</button>
+    </div>
+
+    <p style="color:var(--muted);font-size:.85rem;">Новые маркеры: OpenCV DICT_4X4_50. В детекторе выберите тот же словарь. Белое поле вокруг маркера нужно сохранить при печати.</p>
+    <div class="files-list" id="filesList"></div>
+  </main>
+</div>
+
+<div class="modal hidden" id="editorModal">
+  <div class="modal-content">
+    <h2>Новый маркер ArUco</h2>
+
+    <div class="field">
+      <label for="fileTitle">Название</label>
+      <input id="fileTitle" placeholder="Например: Бульдозер №3">
+    </div>
+
+    <div class="field">
+      <label for="fileDictionary">Словарь</label>
+      <select id="fileDictionary">
+        <option value="DICT_4X4_50">DICT_4X4_50 · 4×4 · 0–49</option>
+        <option value="ARUCO_ORIGINAL">ArUco Original · 5×5 · 0–1023</option>
+      </select>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fileTech">Техника</label>
+        <select id="fileTech">
+          <option value="bulldozer">Бульдозер</option>
+          <option value="dump">Самосвал</option>
+          <option value="loader">Погрузчик</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="fileId" id="fileIdLabel">ID маркера (0–49)</label>
+        <input id="fileId" type="number" min="0" max="49" step="1" required value="0">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="fileDesc">Описание</label>
+      <input id="fileDesc" placeholder="Краткое описание">
+    </div>
+
+    <div class="canvas-wrap">
+      <div id="markerContainer" aria-live="polite"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="cancelEditorBtn">Отмена</button>
+      <button class="btn success" id="saveBtn">💾 Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY_FILES = "app_files_v1";
+const STORAGE_KEY_SESSION = "app_session_v1";
+const STORAGE_KEY_SEL = "app_selected_v1";
+
+const TECH_LABELS = {
+  bulldozer: "🚜 Бульдозер",
+  dump: "🚛 Самосвал",
+  loader: "🏗️ Погрузчик"
+};
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function loadFiles() {
+  try {
+    const files = JSON.parse(localStorage.getItem(STORAGE_KEY_FILES));
+    if (!Array.isArray(files)) return [];
+
+    return files.filter(function (file) {
+      if (!file || typeof file !== "object" ||
+          (typeof file.id !== "string" && typeof file.id !== "number")) return false;
+      const dictionary = file.dictionary || ArucoMarker.LEGACY_DICTIONARY;
+      return [ArucoMarker.DEFAULT_DICTIONARY, ArucoMarker.LEGACY_DICTIONARY].includes(dictionary) &&
+        ArucoMarker.normalizeId(file.markerId, dictionary) !== null;
+    }).map(function (file) {
+      const dictionary = file.dictionary || ArucoMarker.LEGACY_DICTIONARY;
+      return { ...file, id: String(file.id), dictionary: dictionary,
+        markerId: ArucoMarker.normalizeId(file.markerId, dictionary) };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveFiles(files) {
+  localStorage.setItem(STORAGE_KEY_FILES, JSON.stringify(files));
+}
+
+const userNameEl = $("userName");
+const userRoleEl = $("userRole");
+const userAvatar = $("userAvatar");
+const logoutBtn = $("logoutBtn");
+
+const techFilter = $("techFilter");
+const filesList = $("filesList");
+const newFileBtn = $("newFileBtn");
+
+const downloadTableBtn = $("downloadTableBtn");
+const selectAllBtn = $("selectAllBtn");
+const clearSelBtn = $("clearSelBtn");
+const selCounter = $("selCounter");
+
+const editorModal = $("editorModal");
+const fileTitle = $("fileTitle");
+const fileTech = $("fileTech");
+const fileId = $("fileId");
+const fileDictionary = $("fileDictionary");
+const fileDesc = $("fileDesc");
+const markerContainer = $("markerContainer");
+const cancelEditorBtn = $("cancelEditorBtn");
+const saveBtn = $("saveBtn");
+
+let selectedIds = new Set();
+
+try {
+  const rawSel = JSON.parse(localStorage.getItem(STORAGE_KEY_SEL));
+  if (Array.isArray(rawSel)) {
+    selectedIds = new Set(rawSel.filter(function (id) {
+      return typeof id === "string" || typeof id === "number";
+    }).map(String));
+  }
+} catch (e) {}
+
+function persistSelection() {
+  try {
+    localStorage.setItem(STORAGE_KEY_SEL, JSON.stringify(Array.from(selectedIds)));
+  } catch (error) {
+    console.error("Не удалось сохранить выбор маркеров:", error);
+  }
+}
+
+let currentUser = null;
+
+function loadSession() { return AppAuth.loadSession(); }
+
+function requireAuth() {
+  const session = loadSession();
+
+  if (!session || !session.login) {
+    window.location.href = "login.html";
+    return false;
+  }
+
+  currentUser = {
+    ...session,
+    name: typeof session.name === "string" && session.name.trim()
+      ? session.name : String(session.login),
+    role: typeof session.role === "string" ? session.role : ""
+  };
+  userNameEl.textContent = currentUser.name;
+  userRoleEl.textContent = currentUser.role;
+  userAvatar.textContent = currentUser.name.substring(0, 1).toUpperCase();
+
+  return true;
+}
+
+logoutBtn.addEventListener("click", function () {
+  localStorage.removeItem(STORAGE_KEY_SESSION);
+  window.location.href = "login.html";
+});
+
+function getFilteredFiles() {
+  const all = loadFiles();
+  const filter = techFilter.value;
+
+  return filter
+    ? all.filter(function (file) {
+        return file.tech === filter;
+      })
+    : all;
+}
+
+function updateCounter() {
+  selCounter.textContent = "Выбрано: " + selectedIds.size;
+  downloadTableBtn.disabled = exportingPdf || selectedIds.size === 0;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, function (char) {
+    return {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    }[char];
+  });
+}
+
+function renderFiles() {
+  const validIds = new Set(loadFiles().map(function (file) { return file.id; }));
+  const validSelection = new Set(Array.from(selectedIds).filter(function (id) {
+    return validIds.has(id);
+  }));
+  if (validSelection.size !== selectedIds.size) {
+    selectedIds = validSelection;
+    persistSelection();
+  }
+
+  const list = getFilteredFiles();
+  filesList.innerHTML = "";
+
+  if (!list.length) {
+    filesList.innerHTML =
+      '<div style="text-align:center;color:var(--muted);padding:40px 10px;">Пока нет маркеров. Нажмите «+ Новый маркер».</div>';
+    updateCounter();
+    return;
+  }
+
+  list.slice().reverse().forEach(function (file) {
+    const isSelected = selectedIds.has(file.id);
+
+    const card = document.createElement("div");
+    card.className = "file-card" + (isSelected ? " selected" : "");
+    card.dataset.id = file.id;
+
+    card.innerHTML =
+      '<input type="checkbox" class="check" data-check="' + escapeHtml(file.id) + '" aria-label="Выбрать маркер" ' +
+      (isSelected ? "checked" : "") + ">" +
+
+      '<div class="thumb"><img alt="ArUco ID ' + file.markerId + '" src="' +
+        escapeHtml(svgToDataUrl(ArucoMarker.toSVG(file.markerId, 80, file.dictionary))) + '"></div>' +
+
+      '<div class="info">' +
+        "<h3>" + escapeHtml(file.title) + "</h3>" +
+        "<small>" +
+          escapeHtml(TECH_LABELS[file.tech] || file.tech || "") +
+          " · " + escapeHtml(file.dictionary) + " · ID #" + file.markerId +
+          " · " + new Date(file.created).toLocaleString() +
+          " · " + escapeHtml(file.author) +
+        "</small>" +
+        (file.desc
+          ? '<div style="font-size:.8rem;color:var(--muted);margin-top:4px;">' +
+            escapeHtml(file.desc) +
+            "</div>"
+          : "") +
+      "</div>" +
+
+      '<div class="actions">' +
+        '<button class="btn" data-download="' + escapeHtml(file.id) + '">⬇ SVG</button>' +
+        '<button class="btn danger" data-delete="' + escapeHtml(file.id) + '" aria-label="Удалить маркер">🗑</button>' +
+      "</div>";
+
+    filesList.appendChild(card);
+  });
+
+  filesList.querySelectorAll("[data-check]").forEach(function (checkbox) {
+    checkbox.addEventListener("change", function () {
+      const id = checkbox.dataset.check;
+
+      if (checkbox.checked) {
+        selectedIds.add(id);
+      } else {
+        selectedIds.delete(id);
+      }
+
+      persistSelection();
+      checkbox.closest(".file-card").classList.toggle("selected", checkbox.checked);
+      updateCounter();
+    });
+  });
+
+  filesList.querySelectorAll("[data-download]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      const file = loadFiles().find(file => file.id === button.dataset.download);
+      if (!file) return;
+      const svg = ArucoMarker.toSVG(file.markerId, 800, file.dictionary);
+      const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.dictionary + "_" + file.markerId + ".svg";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  });
+
+  filesList.querySelectorAll("[data-delete]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      deleteFile(button.dataset.delete);
+    });
+  });
+
+  updateCounter();
+}
+
+techFilter.addEventListener("change", renderFiles);
+
+function deleteFile(id) {
+  if (!confirm("Удалить маркер?")) return;
+
+  try {
+    saveFiles(loadFiles().filter(function (file) {
+      return file.id !== id;
+    }));
+  } catch (error) {
+    console.error(error);
+    alert("Не удалось удалить маркер.");
+    return;
+  }
+
+  selectedIds.delete(id);
+  persistSelection();
+  renderFiles();
+}
+
+selectAllBtn.addEventListener("click", function () {
+  getFilteredFiles().forEach(function (file) {
+    selectedIds.add(file.id);
+  });
+
+  persistSelection();
+  renderFiles();
+});
+
+clearSelBtn.addEventListener("click", function () {
+  selectedIds.clear();
+  persistSelection();
+  renderFiles();
+});
+
+/* ---------- ArUco ---------- */
+
+let previewVersion = 0;
+let exportingPdf = false;
+
+async function initAruco() {
+  // Validate local dictionary early; no network request is needed.
+  ArucoMarker.matrix(0);
+}
+
+function normalizeMarkerId(value) {
+  return ArucoMarker.normalizeId(value, fileDictionary.value);
+}
+
+function markerIdMessage() {
+  return "ID должен быть от 0 до " + ArucoMarker.maxId(fileDictionary.value);
+}
+
+function suggestMarkerId() {
+  const dictionary = fileDictionary.value;
+  const used = new Set(loadFiles().filter(file => file.dictionary === dictionary).map(file => file.markerId));
+  let id = 0;
+  while (used.has(id) && id <= ArucoMarker.maxId(dictionary)) id++;
+  fileId.value = id <= ArucoMarker.maxId(dictionary) ? String(id) : "";
+  fileId.max = String(ArucoMarker.maxId(dictionary));
+  $("fileIdLabel").textContent = "ID маркера (0–" + fileId.max + ")";
+}
+
+function svgToDataUrl(svg) {
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+async function redrawPreview() {
+  const version = ++previewVersion;
+  const id = normalizeMarkerId(fileId.value);
+
+  if (id === null) {
+    markerContainer.innerHTML =
+      '<div style="color:#ef4444;font-size:.85rem;">' + markerIdMessage() + '</div>';
+    return;
+  }
+
+  try {
+    await initAruco();
+
+    if (version !== previewVersion) return;
+    const svg = ArucoMarker.toSVG(id, 320, fileDictionary.value);
+    markerContainer.innerHTML = svg;
+  } catch (error) {
+    console.error(error);
+    if (version === previewVersion) {
+      markerContainer.innerHTML =
+        '<div style="color:#ef4444;font-size:.85rem;">Не удалось создать маркер</div>';
+    }
+  }
+}
+
+fileId.addEventListener("input", redrawPreview);
+fileDictionary.addEventListener("change", function () {
+  suggestMarkerId();
+  redrawPreview();
+});
+document.addEventListener("keydown", function (event) {
+  if (event.key === "Escape") closeEditor();
+});
+
+async function openEditor() {
+  fileTitle.value = "";
+  fileTech.value = "bulldozer";
+  fileDictionary.value = ArucoMarker.DEFAULT_DICTIONARY;
+  suggestMarkerId();
+  fileDesc.value = "";
+
+  editorModal.classList.remove("hidden");
+  await redrawPreview();
+}
+
+function closeEditor() {
+  previewVersion++;
+  editorModal.classList.add("hidden");
+}
+
+newFileBtn.addEventListener("click", openEditor);
+cancelEditorBtn.addEventListener("click", closeEditor);
+
+editorModal.addEventListener("click", function (event) {
+  if (event.target === editorModal) {
+    closeEditor();
+  }
+});
+
+saveBtn.addEventListener("click", async function () {
+  if (saveBtn.disabled) return;
+  const title = fileTitle.value.trim() || "Без названия";
+  const tech = fileTech.value;
+  const markerId = normalizeMarkerId(fileId.value);
+  const description = fileDesc.value.trim();
+  const dictionary = fileDictionary.value;
+
+  if (markerId === null) {
+    alert(markerIdMessage());
+    return;
+  }
+
+  saveBtn.disabled = true;
+  try {
+    await initAruco();
+
+    const files = loadFiles();
+    if (files.some(file => file.dictionary === dictionary && file.markerId === markerId)) {
+      alert("Маркер с таким ID уже создан в выбранном словаре. Выберите другой ID.");
+      return;
+    }
+    const svgString = ArucoMarker.toSVG(markerId, 80, dictionary);
+
+    const file = {
+      id: "m_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      title: title,
+      tech: tech,
+      markerId: markerId,
+      dictionary: dictionary,
+      desc: description,
+      author: currentUser.name,
+      created: new Date().toISOString(),
+      image: svgString
+    };
+
+    files.push(file);
+    saveFiles(files);
+
+    closeEditor();
+    renderFiles();
+  } catch (error) {
+    console.error(error);
+    alert("Не удалось сохранить маркер.");
+  } finally {
+    saveBtn.disabled = false;
+  }
+});
+
+downloadTableBtn.addEventListener("click", async function () {
+  if (exportingPdf) return;
+  const all = loadFiles();
+  const chosen = all.filter(function (file) {
+    return selectedIds.has(file.id);
+  });
+
+  if (!chosen.length) {
+    alert("Отметьте галочками маркеры для экспорта.");
+    return;
+  }
+
+  chosen.sort(function (a, b) {
+    return a.markerId - b.markerId;
+  });
+
+  exportingPdf = true;
+  updateCounter();
+  try {
+    await initAruco();
+    await generateTablePdf(chosen);
+  } catch (error) {
+    console.error(error);
+    alert("Не удалось создать PDF.");
+  } finally {
+    exportingPdf = false;
+    updateCounter();
+  }
+});
+
+async function generateTablePdf(files) {
+  if (!window.jspdf || typeof window.jspdf.jsPDF !== "function") {
+    throw new Error("Библиотека jsPDF не найдена. Выполните npm install в папке проекта.");
+  }
+  const jsPDF = window.jspdf.jsPDF;
+
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a4"
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 5;
+
+  const perRow = 2;
+  const gap = 2.5;
+  const cellWidth = (pageWidth - margin * 2 - gap * (perRow - 1)) / perRow;
+
+  const padding = 1;
+  const idColumnWidth = 7;
+  const captionHeight = 2.8;
+
+  const rowsPerPage = 3;
+  // Fit six large square markers on A4, including captions and white margins.
+  const maxMarkerHeight = (pageHeight - margin * 2 - gap * (rowsPerPage - 1)) /
+    rowsPerPage - padding * 2 - captionHeight;
+  const markerWidth = Math.min(cellWidth - padding * 2 - idColumnWidth, maxMarkerHeight);
+  const markerHeight = markerWidth;
+  const cellHeight = padding + markerHeight + captionHeight + padding;
+
+  const borderColor = [200, 200, 200];
+  const textColor = [60, 60, 60];
+  const idColor = [40, 40, 40];
+
+  let index = 0;
+  let pageNumber = 0;
+
+  while (index < files.length) {
+    if (pageNumber > 0) {
+      doc.addPage();
+    }
+
+    pageNumber++;
+
+    for (let row = 0; row < rowsPerPage && index < files.length; row++) {
+      for (let column = 0; column < perRow && index < files.length; column++) {
+        const file = files[index++];
+
+        const x = margin + column * (cellWidth + gap);
+        const y = margin + row * (cellHeight + gap);
+
+        doc.setDrawColor(
+          borderColor[0],
+          borderColor[1],
+          borderColor[2]
+        );
+        doc.setLineWidth(0.2);
+        doc.rect(x, y, cellWidth, cellHeight);
+
+        // Draw vector cells directly, preserving sharp edges at any print size.
+        const cells = ArucoMarker.matrix(file.markerId, file.dictionary);
+        const moduleSize = markerWidth / cells.length;
+        doc.setFillColor(255, 255, 255);
+        doc.rect(x + padding, y + padding, markerWidth, markerHeight, "F");
+        doc.setFillColor(0, 0, 0);
+        cells.forEach(function (bits, cellY) {
+          bits.forEach(function (bit, cellX) {
+            if (!bit) doc.rect(x + padding + cellX * moduleSize,
+              y + padding + cellY * moduleSize, moduleSize, moduleSize, "F");
+          });
+        });
+        doc.setTextColor(...idColor);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.text(String(file.markerId), x + padding + markerWidth + 0.5,
+          y + padding + markerHeight / 2 + 1);
+        doc.setTextColor(...textColor);
+        doc.setFontSize(6);
+        doc.text(file.dictionary + " / ID " + file.markerId,
+          x + cellWidth / 2, y + padding + markerHeight + captionHeight,
+          { align: "center" });
+
+      }
+    }
+  }
+
+  doc.save(
+    "markers_selected_" +
+      new Date().toISOString().slice(0, 10) +
+      ".pdf"
+  );
+}
+
+if (requireAuth()) {
+  renderFiles();
+  initAruco().catch(console.error);
+}
+</script>
+</body>
+</html>
