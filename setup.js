@@ -3,11 +3,11 @@
   const $=id=>document.getElementById(id), G=SetupGeometry;
   const stages=["polygon","garage","zones","routes"], kinds={warehouse:"Склад",charging:"Зарядная станция",mining:"Зона добычи",transport:"Транспортная зона"};
   const titles={polygon:"Создайте или выберите полигон",garage:"Создайте технику в своём гараже",zones:"Обозначьте рабочие зоны",routes:"Создайте допустимые траектории"};
-  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Сначала нарисуйте транспортную зону — всю область движения техники. Внутри неё разместите склад, зарядку и добычу.",routes:"Самосвал перевозит груз добыча ↔ склад. Бульдозер базируется на складе, погрузчик — в добыче. Каждой машине строится выезд на зарядку и обратно. Нажмите номер в списке, чтобы подсветить путь."};
+  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Сначала нарисуйте транспортную зону — всю область движения техники. Внутри неё разместите склад, зарядку и добычу.",routes:"Самосвал перевозит груз добыча ↔ склад. Бульдозер базируется на складе, погрузчик — в добыче. Каждой машине строится выезд на зарядку и обратно. Наведите курсор на карточку техники или нажмите её, чтобы показать точки её траекторий."};
   let profile,polygons=[],equipment=[],ws,step="polygon",selectedId=null,draft=null,selectedVertex=-1,dirty=false,busy=false;
   let stream,drag=null,painting=false,history=[];
   let noticeTimer;
-  let focusedRouteId=null;
+  let selectedEquipmentId=null,hoveredEquipmentId=null;
   document.querySelector("main").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
   function notice(text,error=false){
@@ -103,7 +103,8 @@
   }
   function renderSaveState(){ $("saveState").textContent=dirty?"Есть несохранённые изменения":"Изменения сохранены";$("undo").disabled=!history.length; }
   function render(){
-    if(focusedRouteId&&!ws.routes.some(route=>route.id===focusedRouteId))focusedRouteId=null;
+    if(selectedEquipmentId&&!ownEquipment().some(vehicle=>vehicle.id===selectedEquipmentId))selectedEquipmentId=null;
+    hoveredEquipmentId=null;
     $("title").textContent=titles[step];$("description").textContent=descriptions[step];
     $("registrationStatus").textContent="Статус регистрации: "+AppCloud.labels[profile.registration_status];
     const shortLabels={polygon:"Полигон",garage:"Гараж",zones:"Зоны",routes:"Траектории"};
@@ -146,7 +147,7 @@
       const image=new Image();image.alt="ArUco ID "+item.marker_id;image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(ArucoMarker.toSVG(item.marker_id,300));
       const role=G.equipmentRole(item.type);
       card.append(title,paragraph(role.label+" · ArUco ID "+item.marker_id),paragraph(role.hauls?"Добыча ↔ склад; со склада на зарядку и обратно.":"База: "+(role.baseKind==="mining"?"зона добычи":"склад")+". Местная работа; выезд только на зарядку и обратно.","muted"),image,
-        paragraph("Траектории: "+(ws.routes.filter(r=>r.equipmentId===item.id).map(r=>"№"+routeNumber(r)).join(", ")||"пока нет")),
+        paragraph("Траекторий: "+ws.routes.filter(r=>r.equipmentId===item.id).length),
         button("Скачать SVG",()=>SetupExport.download("equipment-"+item.marker_id+".svg",ArucoMarker.toSVG(item.marker_id,800),"image/svg+xml")),
         button("Удалить",async()=>{await AppCloud.rpc("delete_equipment",{p_id:item.id});equipment=await AppCloud.equipment();profile=await AppCloud.me();render();},"danger"));
       return card;
@@ -156,14 +157,10 @@
   function renderLists(){
     const list=$("shapeList");list.replaceChildren();
     const collection=step==="zones"?ws.zones:step==="routes"?ws.routes:[];
-    collection.forEach((item,index)=>{
+    if(step==="routes")list.append(...ownEquipment().map(vehicle=>equipmentRouteCard(vehicle)));
+    else collection.forEach((item,index)=>{
       const row=document.createElement("div");row.className="item";
       const text=document.createElement("span");text.className="grow";text.textContent=(kinds[item.kind]?kinds[item.kind]+": ":"")+item.name;
-      if(step==="routes"){
-        row.classList.add("route-list-item");row.classList.toggle("route-focused",focusedRouteId===item.id);row.dataset.routeNumber=routeNumber(item,index);
-        const badge=button("№"+routeNumber(item,index),()=>{focusedRouteId=item.id;draw();},"route-number-badge");badge.setAttribute("aria-label","Показать траекторию №"+routeNumber(item,index)+" на карте");badge.setAttribute("aria-pressed",String(focusedRouteId===item.id));badge.style.borderColor=routeColor(item);row.append(badge);
-        const vehicle=ownEquipment().find(e=>e.id===item.equipmentId),owner=document.createElement("small");owner.className="route-owner";owner.textContent=(vehicle?.name||"Неизвестная техника")+" · ID "+(vehicle?.marker_id??"?")+(item.bidirectional?" · туда и обратно":"");text.append(owner);
-      }
       row.append(text,button("Изменить",()=>{
         if(draft)throw Error("Сначала сохраните текущую фигуру в проект.");
         snapshot();draft={...clone(item),index,closed:true};selectedVertex=-1;render();$("editorWindow").classList.add("properties-open");$("toggleProperties").setAttribute("aria-expanded","true");
@@ -176,26 +173,64 @@
       row.style.display="block";$("vertexList").append(row);
     });
     $("validation").replaceChildren();
-    if(step==="routes")for(const route of ws.routes){const errors=checkRoute(route);$("validation").append(paragraph("№"+routeNumber(route)+" · "+route.name+": "+(errors.length?errors.join(" "):"Допустима"),errors.length?"error":""));}
+    if(step==="routes")for(const route of ws.routes){const errors=checkRoute(route);$("validation").append(paragraph(route.name+": "+(errors.length?errors.join(" "):"Допустима"),errors.length?"error":""));}
     if(step==="zones"){
       const missing=Object.keys(kinds).filter(k=>!ws.zones.some(z=>z.kind===k));
       $("validation").append(paragraph(missing.length?"Ещё нужны: "+missing.map(k=>kinds[k]).join(", "):"Все четыре типа зон созданы."));
       for(const error of G.zoneErrors(ws.zones,boundary()))$("validation").append(paragraph(error,"error"));
     }
   }
+  function activeEquipment(){return hoveredEquipmentId||selectedEquipmentId;}
+  function updateEquipmentPreview(){
+    const active=activeEquipment();
+    document.querySelectorAll(".equipment-route-card").forEach(card=>{
+      card.classList.toggle("route-focused",card.dataset.equipmentId===active);
+      card.querySelector(".equipment-route-select").setAttribute("aria-pressed",String(card.dataset.equipmentId===selectedEquipmentId));
+    });
+    draw();
+  }
+  function editRoute(id){
+    if(draft)throw Error("Сначала сохраните текущую фигуру в проект.");
+    const index=ws.routes.findIndex(route=>route.id===id);if(index<0)return;
+    snapshot();draft={...clone(ws.routes[index]),index,closed:true};selectedEquipmentId=draft.equipmentId;selectedVertex=-1;
+    render();$("editorWindow").classList.add("properties-open");$("toggleProperties").setAttribute("aria-expanded","true");
+  }
+  function deleteRoute(id){
+    const index=ws.routes.findIndex(route=>route.id===id);if(index<0)return;
+    snapshot();ws.routes.splice(index,1);
+    if(draft?.index===index)draft=null;else if(draft?.index>index)draft.index--;
+    changed();render();
+  }
+  function equipmentRouteCard(vehicle){
+    const card=document.createElement("article");card.className="equipment-route-card";card.dataset.equipmentId=vehicle.id;
+    card.style.setProperty("--route-color",routeColor({equipmentId:vehicle.id}));
+    const select=document.createElement("button");select.type="button";select.className="equipment-route-select";
+    select.setAttribute("aria-pressed",String(vehicle.id===selectedEquipmentId));
+    const marker=new Image();marker.alt="ArUco ID "+vehicle.marker_id;marker.src="data:image/svg+xml,"+encodeURIComponent(ArucoMarker.toSVG(vehicle.marker_id,40));
+    const title=document.createElement("span");title.className="grow";
+    const name=document.createElement("strong");name.textContent=vehicle.name;
+    const role=document.createElement("small");role.textContent=G.equipmentRole(vehicle.type).label+" · ArUco ID "+vehicle.marker_id;
+    title.append(name,role);select.append(marker,title);card.append(select);
+    const choose=()=>{selectedEquipmentId=selectedEquipmentId===vehicle.id?null:vehicle.id;updateEquipmentPreview();};
+    select.onclick=choose;card.onclick=event=>{if(!event.target.closest("button"))choose();};
+    card.onpointerenter=event=>{if(event.pointerType==="touch")return;hoveredEquipmentId=vehicle.id;updateEquipmentPreview();};
+    card.onpointerleave=()=>{if(hoveredEquipmentId===vehicle.id)hoveredEquipmentId=null;updateEquipmentPreview();};
+    card.onfocusin=()=>{hoveredEquipmentId=vehicle.id;updateEquipmentPreview();};
+    card.onfocusout=event=>{if(!card.contains(event.relatedTarget)){if(hoveredEquipmentId===vehicle.id)hoveredEquipmentId=null;updateEquipmentPreview();}};
+    const routes=ws.routes.filter(route=>route.equipmentId===vehicle.id);
+    for(const route of routes){
+      const row=document.createElement("div");row.className="item route-list-item";row.dataset.routeId=route.id;
+      const text=document.createElement("span");text.className="grow";text.textContent=route.name;
+      row.append(text,button("Изменить",()=>editRoute(route.id)),button("Удалить",()=>deleteRoute(route.id),"danger"));card.append(row);
+    }
+    if(!routes.length)card.append(paragraph("Нет траекторий","muted"));
+    card.classList.toggle("route-focused",vehicle.id===activeEquipment());return card;
+  }
   function renderRouteLegend(){
-    $("routeLegendItems").replaceChildren(...ownEquipment().map(vehicle=>{
-      const row=document.createElement("div");row.className="equipment-routes";row.dataset.equipmentId=vehicle.id;
-      const marker=new Image();marker.alt="ArUco ID "+vehicle.marker_id;marker.src="data:image/svg+xml,"+encodeURIComponent(ArucoMarker.toSVG(vehicle.marker_id,40));
-      const text=document.createElement("div");text.append(paragraph(vehicle.name+" · ID "+vehicle.marker_id));
-      const numbers=document.createElement("span");numbers.className="route-numbers";numbers.textContent=ws.routes.filter(r=>r.equipmentId===vehicle.id).map(r=>"№"+routeNumber(r)).join(", ")||"Нет траекторий";
-      numbers.style.color=routeColor({equipmentId:vehicle.id});text.append(numbers);
-      for(const route of ws.routes.filter(r=>r.equipmentId===vehicle.id))text.append(button("№"+routeNumber(route)+" · "+route.name,()=>{focusedRouteId=route.id;draw();},"legend-route"));
-      row.append(marker,text);return row;
-    }));
+    $("routeLegendItems").replaceChildren(...ownEquipment().map(vehicle=>equipmentRouteCard(vehicle)));
   }
   function svg(tag,attributes){const el=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const [key,value]of Object.entries(attributes))el.setAttribute(key,value);return el;}
-  function drawShape(points,{closed=true,color="#38bdf8",active=false,fill="none",marker=true,showVertices=true,strokeWidth=3,opacity=1,routeId}={}){
+  function drawShape(points,{closed=true,color="#38bdf8",active=false,fill="none",marker=true,showVertices=true,showVertexLabels=true,strokeWidth=3,opacity=1,routeId}={}){
     if(!points.length)return;
     $("map").append(svg(closed?"polygon":"polyline",{points:points.map(p=>p.x+","+p.y).join(" "),fill,stroke:color,"stroke-width":strokeWidth,opacity,...(routeId?{"data-route-id":routeId}:{}),"pointer-events":"none"}));
     if(active)for(let i=0;i<points.length-(closed?0:1);i++){
@@ -207,18 +242,8 @@
       const knownMarker=marker&&Number.isInteger(p.markerId);
       if(knownMarker)group.append(svg("image",{x:p.x-16,y:p.y-16,width:32,height:32,href:"data:image/svg+xml,"+encodeURIComponent(ArucoMarker.toSVG(p.markerId,32)),"pointer-events":"none"}));
       group.append(svg("circle",{cx:p.x,cy:p.y,r:knownMarker?20:active&&selectedVertex===i?12:8,fill:knownMarker?"transparent":marker?color:"#fbbf24",stroke:knownMarker?color:"#0f172a","stroke-width":active&&selectedVertex===i?4:2}));
-      const label=svg("text",{x:p.x+14,y:p.y-12});label.textContent=(i+1)+(Number.isInteger(p.markerId)?" / ID "+p.markerId:"");group.append(label);$("map").append(group);
+      if(showVertexLabels){const label=svg("text",{x:p.x+14,y:p.y-12});label.textContent=(i+1)+(Number.isInteger(p.markerId)?" / ID "+p.markerId:"");group.append(label);}$("map").append(group);
     });
-  }
-  function drawRouteLabel(route,index){
-    const length=route.points.slice(1).reduce((s,p,i)=>s+Math.hypot(p.x-route.points[i].x,p.y-route.points[i].y),0);let remaining=length/2,anchor=route.points[0];
-    for(let i=1;i<route.points.length;i++){const a=route.points[i-1],b=route.points[i],d=Math.hypot(b.x-a.x,b.y-a.y);if(remaining<=d){anchor={x:a.x+(b.x-a.x)*remaining/d,y:a.y+(b.y-a.y)*remaining/d};break;}remaining-=d;}
-    if(!anchor)return;
-    const vehicle=ownEquipment().find(e=>e.id===route.equipmentId),x=Math.max(52,Math.min(948,anchor.x)),y=Math.max(22,Math.min(678,anchor.y-25-(index%3)*25));
-    const group=svg("g",{class:"route-label","data-route-number":routeNumber(route,index),"data-equipment-id":route.equipmentId,"pointer-events":"none"});
-    group.append(svg("line",{x1:anchor.x,y1:anchor.y,x2:x,y2:y,stroke:routeColor(route),"stroke-width":1}));
-    group.append(svg("rect",{x:x-49,y:y-13,width:98,height:26,rx:8,fill:"#0f172a",stroke:routeColor(route),"stroke-width":2}));
-    const text=svg("text",{x,y:y+5,"text-anchor":"middle"});text.textContent="№"+routeNumber(route,index)+" · ID "+(vehicle?.marker_id??"?");group.append(text);$("map").append(group);
   }
   function draw(){
     const map=$("map");map.replaceChildren();
@@ -235,9 +260,13 @@
     }
     if(step!=="polygon")drawShape(boundary(),{color:"#94a3b8",fill:"#38bdf809"});
     if(step!=="polygon")ws.zones.map((zone,i)=>({zone,i})).sort((a,b)=>(a.zone.kind!=="transport")-(b.zone.kind!=="transport")).forEach(({zone,i})=>{if(step==="zones"&&draft?.index===i)return;drawShape(zone.points,{color:({warehouse:"#c4b5fd",charging:"#4ade80",mining:"#fb923c",transport:"#60a5fa"})[zone.kind],fill:zone.kind==="transport"?"#38bdf81a":"#38bdf80a"});});
-    if(step==="routes")ws.routes.forEach((route,i)=>{if(draft?.index===i)return;drawShape(route.points,{closed:false,color:checkRoute(route).length?"#fb7185":routeColor(route),marker:false,showVertices:false,routeId:route.id,strokeWidth:focusedRouteId===route.id?6:3,opacity:focusedRouteId&&focusedRouteId!==route.id?.35:1});});
-    if(draft)drawShape(draft.points,{closed:step!=="routes"&&draft.closed,active:Boolean(editable()),marker:step!=="routes",fill:step!=="routes"&&draft.closed?"#38bdf81a":"none"});
-    if(step==="routes")ws.routes.forEach((route,i)=>drawRouteLabel(draft?.index===i?{...route,...draft}:route,i));
+    if(step==="routes")ws.routes.forEach((route,i)=>{
+      if(draft?.index===i)return;
+      const focused=activeEquipment()===route.equipmentId;
+      drawShape(route.points,{closed:false,color:checkRoute(route).length?"#fb7185":routeColor(route),marker:false,showVertices:false,routeId:route.id,strokeWidth:focused?6:3,opacity:activeEquipment()&&!focused?0.25:1});
+      if(focused){const group=svg("g",{class:"route-points","data-route-id":route.id,"pointer-events":"none"});for(const point of route.points)group.append(svg("circle",{cx:point.x,cy:point.y,r:7,fill:routeColor(route),stroke:"#0f172a","stroke-width":2}));map.append(group);}
+    });
+    if(draft)drawShape(draft.points,{closed:step!=="routes"&&draft.closed,active:Boolean(editable()),marker:step!=="routes",showVertexLabels:step!=="routes",fill:step!=="routes"&&draft.closed?"#38bdf81a":"none"});
     $("deleteVertex").disabled=!editable()||selectedVertex<0;$("finishShape").disabled=!editable()||draft.points.length<3;
   }
   function coordinates(event){const box=$("map").getBoundingClientRect();return{x:Math.max(0,Math.min(1000,(event.clientX-box.left)*1000/box.width)),y:Math.max(0,Math.min(700,(event.clientY-box.top)*700/box.height))};}
@@ -318,7 +347,7 @@
     // Changing one vehicle keeps every other vehicle's edited routes.
     const retained=$("plannerEquipment").value?ws.routes.filter(route=>route.equipmentId!==$("plannerEquipment").value):[];
     if(routes.length+retained.length>30)throw Error("Максимум 30 траекторий в проекте. Удалите ненужные пути перед построением.");
-    snapshot();ws.depth=depth;ws.routes=[...retained,...routes];focusedRouteId=null;selectedVertex=-1;$("paintMode").checked=false;
+    snapshot();ws.depth=depth;ws.routes=[...retained,...routes];selectedEquipmentId=null;hoveredEquipmentId=null;selectedVertex=-1;$("paintMode").checked=false;
     $("depthCols").value=depth.cols;$("depthRows").value=depth.rows;changed();render();
     notice((newMap?"Тестовая карта создана. ":"")+"Построено траекторий: "+routes.length+". Их можно редактировать и сохранить на сервере."+
       (result.unreachable.length?"\nНет прохода: "+result.unreachable.slice(0,5).join("; ")+". Проверьте препятствия и ограничения.":""),Boolean(result.unreachable.length));

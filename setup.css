@@ -79,11 +79,15 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 #editorWindow.routes-layout .controls.panel>label{flex-direction:row;align-items:center}
 #editorWindow.routes-layout .controls.panel select{padding:6px}
 #routeLegend{position:absolute;top:0;right:0;z-index:3;margin:0;padding:10px;background:var(--panel);border:1px solid var(--border);border-radius:10px;max-width:min(295px,85%);max-height:42%;overflow:auto;font-size:.8rem}
-#routeLegendItems .equipment-routes{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border)}
-.equipment-routes img{width:38px;height:38px;flex:none}.equipment-routes p{margin:0;font-size:.8rem}.route-numbers{font-weight:600}
 #routeClearances label{margin:10px 0}
 @media(max-width:750px){#routeLegend{top:auto;bottom:24px;max-width:80%;max-height:30%}}
-.route-list-item .route-number-badge{font-size:1rem;font-weight:700;padding:8px 12px;min-width:58px;align-self:flex-start}
-.route-list-item .grow{min-width:120px}.route-owner{display:block;color:var(--muted);font-size:.75rem;margin-top:4px}
-.route-list-item.route-focused{background:#164e6344;border-radius:8px;padding:10px 6px}
-#routeLegendItems .legend-route{display:block;width:100%;text-align:left;padding:5px;margin-top:5px;font-size:.72rem}
+.equipment-route-card{border:1px solid var(--border);border-left:3px solid var(--route-color);border-radius:8px;margin:8px 0;padding:6px;transition:background .12s,border-color .12s}
+.equipment-route-card.route-focused{background:#164e6355;border-color:var(--route-color)}
+.equipment-route-select{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:5px}
+.equipment-route-select img{width:36px;height:36px;flex:none}
+.equipment-route-select strong,.equipment-route-select small{display:block;overflow-wrap:anywhere}
+.equipment-route-select small{color:var(--muted);font-size:.7rem;margin-top:3px}
+.equipment-route-card .route-list-item{display:flex;flex-wrap:wrap;gap:5px;padding:8px 2px;border-top:1px solid var(--border)}
+.route-list-item .grow{flex-basis:100%;min-width:0;font-size:.75rem;overflow-wrap:anywhere}
+.equipment-route-card .route-list-item button{font-size:.72rem;padding:5px 8px}
+.equipment-route-card>p{margin:6px;font-size:.75rem}

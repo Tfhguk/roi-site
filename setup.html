@@ -49,7 +49,7 @@
 <label>Столбцы<input id="depthCols" type="number" min="2" max="100" value="20"></label><label>Строки<input id="depthRows" type="number" min="2" max="100" value="14"></label><button id="resizeDepth">Новая сетка</button>
 <button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div>
 <div class="controls"><label>Отступ от границы<input id="plannerBoundaryClearance" type="number" min="1" max="1000" step="1" value="5"></label><label>От центра рукомаркера<input id="plannerMarkerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div><p class="muted">Отступы заданы в единицах карты 1000×700 для всей линии движения. Выберите их с учётом габаритов техники и запаса. Рукомаркеры границ и зон объезжаются; при недостатке места проезд запрещён.</p>
-</details><details id="routeLegend" hidden><summary>Техника и номера траекторий</summary><div id="routeLegendItems"></div></details></div>
+</details><details id="routeLegend" hidden><summary>Техника и траектории</summary><p class="muted">Наведите курсор на карточку или нажмите её, чтобы показать точки путей.</p><div id="routeLegendItems"></div></details></div>
 </section>
 </section>
 <div id="pageActions"><footer id="actions"><button id="back">← Назад</button><button id="exportMarkers">Скачать рукомаркеры PDF</button><button id="exportWorkspace">Скачать проект JSON</button><button id="save">Сохранить на сервере</button><button id="next" class="primary">Далее →</button></footer></div>
