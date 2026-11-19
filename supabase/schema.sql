@@ -191,7 +191,7 @@ declare uid uuid:=auth.uid(); result public.polygons; points jsonb:='[]'; p json
 begin
  if uid is null then raise exception 'Войдите в аккаунт.'; end if;
  if not roi_private.shape_ok(p_points) then raise exception 'Нужен простой многоугольник без самопересечений.'; end if;
- if jsonb_array_length(p_points)>40 then raise exception 'Максимум 40 вершин; оставьте ArUCo ID для техники и зон.'; end if;
+ if jsonb_array_length(p_points)>37 then raise exception 'Максимум 37 вершин границы: ещё 13 ArUCo ID нужны для техники и четырёх обязательных зон.'; end if;
  insert into public.polygons(owner_id,name,geometry) values(uid,btrim(p_name),'{}') returning * into result;
  for p in select value from jsonb_array_elements(p_points) loop
   mid:=roi_private.allocate_marker(result.id,uid,'boundary',(p->>'id')::uuid);

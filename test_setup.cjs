@@ -134,6 +134,8 @@ async function main(){
     await assert.rejects(asUser(bob.id,"update public.profiles set registration_status='ready'"),/permission denied/);
     await assert.rejects(asUser(bob.id,"update public.polygons set name='hijack'"),/permission denied/);
     await assert.rejects(rpc(bob.id,'create_polygon',['Invalid',JSON.stringify(points([[0,0],[100,100],[0,100],[100,0]]))]),/многоугольник/);
+    const excessiveBoundary=points(Array.from({length:38},(_,i)=>[500+300*Math.cos(i*Math.PI*2/38),350+300*Math.sin(i*Math.PI*2/38)]));
+    await assert.rejects(rpc(bob.id,'create_polygon',['Too many vertices',JSON.stringify(excessiveBoundary)]),/37 вершин/);
     await assert.rejects(rpc(bob.id,'delete_equipment',[aliceEquipment[0].id]),/не найдена/);
     await rpc(bob.id,'advance_setup',[]); // garage -> zones is permitted
     await assert.rejects(rpc(bob.id,'advance_setup',[]),/четыре типа/);
