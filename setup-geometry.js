@@ -305,15 +305,30 @@
     validateDepth(depth);const limits=plannerLimits(options);
     return searchPath(start,end,polygon,depth,limits,makeGraph(polygon,depth,limits));
   }
+  function equipmentRole(type){
+    const roles={truck:{label:"Самосвал",baseKind:"warehouse",hauls:true},bulldozer:{label:"Бульдозер",baseKind:"warehouse",hauls:false},loader:{label:"Погрузчик",baseKind:"mining",hauls:false},robot:{label:"Робот",baseKind:"warehouse",hauls:false}};
+    return roles[type==="excavator"?"bulldozer":type]||roles.truck;
+  }
+  function vehicleRouteErrors(route,zones,vehicle){
+    if(!vehicle)return ["Выберите технику, которой принадлежит маршрут."];
+    const role=equipmentRole(vehicle.type);if(role.hauls||route.points.length<2)return [];
+    const allowed=zones.filter(z=>z.kind===role.baseKind||z.kind==="charging");
+    if(route.purpose==="haul"||![route.points[0],route.points.at(-1)].every(p=>allowed.some(z=>inside(p,z.points))))return [role.label+": разрешены местные перемещения в "+(role.baseKind==="mining"?"зоне добычи":"зоне склада")+" и поездки на зарядку. Между добычей и складом ездит только самосвал."];
+    return [];
+  }
   function planRoutes(polygon,zones,equipment,depth,options={}) {
     const errors=zoneErrors(zones,polygon);if(errors.length)throw Error(errors.join("\n"));
     validateDepth(depth);const limits=plannerLimits({boundaryClearance:15,markerClearance:40,...options,markers:routingMarkers(polygon,zones),transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}),graph=makeGraph(polygon,depth,limits);
-    const pairs=[];
-    for(const from of zones)for(const to of zones)if(from.kind!=="transport"&&to.kind!=="transport"&&from.id!==to.id&&(
-      options.allPairs?zones.indexOf(from)<zones.indexOf(to):from.kind==="mining"&&to.kind==="warehouse"||from.kind==="warehouse"&&to.kind==="charging"))pairs.push([from,to]);
     if(!equipment.length)throw Error("Добавьте технику в гараж.");
-    if(!pairs.length)throw Error("Для автопостроения нужны добыча, склад и зарядка внутри транспортной зоны.");
-    if(pairs.length*equipment.length>30)throw Error("Получается больше 30 траекторий. Выберите одну единицу техники для автопостроения.");
+    const jobs=[];
+    for(const vehicle of equipment){const role=equipmentRole(vehicle.type);
+      for(const from of zones)for(const to of zones){
+        if(role.hauls&&from.kind==="mining"&&to.kind==="warehouse")jobs.push({vehicle,from,to,purpose:"haul"});
+        if(from.kind===role.baseKind&&to.kind==="charging")jobs.push({vehicle,from,to,purpose:"charging"});
+      }
+    }
+    if(!jobs.length)throw Error("Для выбранной техники нужны её рабочая зона и зарядка внутри транспортной зоны.");
+    if(jobs.length>30)throw Error("Получается больше 30 траекторий. Выберите одну единицу техники для автопостроения.");
     function anchor(zone){
       const centre=zoneCentre(zone);
       if(!clearanceErrors([centre],limits,graph.safety).length&&cellsAt(centre,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth)&&graph.nodes.some((p,i)=>graph.allowed[i]&&graph.metric(centre,p)))return centre;
@@ -321,17 +336,17 @@
       if(candidates.length)return candidates[0];
       return [centre,...zone.points].find(p=>inside(p,zone.points)&&graph.nodes.some((q,i)=>graph.allowed[i]&&graph.metric(p,q)));
     }
-    const anchors=new Map(zones.map(zone=>[zone.id,anchor(zone)])),routes=[],unreachable=[];
-    for(const [from,to]of pairs){
+    const anchors=new Map(zones.map(zone=>[zone.id,anchor(zone)])),routes=[],unreachable=[],paths=new Map();
+    for(const {from,to,vehicle,purpose}of jobs){
       const a=anchors.get(from.id);let b=anchors.get(to.id);
       // Overlapping zones may have the same centre. Reach a nearby point in the
       // destination rather than treating an already adjacent zone as isolated.
       if(a&&b&&dist(a,b)<=.1)b=to.points.map(p=>{const t=Math.min(.5,1/Math.max(1,dist(p,b)));return {x:b.x+(p.x-b.x)*t,y:b.y+(p.y-b.y)*t};}).find(p=>dist(a,p)>.1&&inside(p,to.points)&&graph.metric(a,p));
-      const path=a&&b?searchPath(a,b,polygon,depth,limits,graph):null;
-      if(!path){unreachable.push(from.name+" → "+to.name);continue;}
-      for(const vehicle of equipment)routes.push({name:Array.from(vehicle.name+": "+from.name+" → "+to.name).slice(0,100).join(""),equipmentId:vehicle.id,fromZoneId:from.id,toZoneId:to.id,points:path.map(p=>({...p})),maxDepth:limits.maxDepth,maxSlope:limits.maxSlope,boundaryClearance:limits.boundaryClearance,markerClearance:limits.markerClearance});
+      const key=from.id+":"+to.id;if(!paths.has(key))paths.set(key,a&&b?searchPath(a,b,polygon,depth,limits,graph):null);const path=paths.get(key);
+      if(!path){unreachable.push(vehicle.name+": "+from.name+" ↔ "+to.name);continue;}
+      routes.push({name:Array.from(vehicle.name+": "+from.name+" ↔ "+to.name).slice(0,100).join(""),equipmentId:vehicle.id,fromZoneId:from.id,toZoneId:to.id,purpose,bidirectional:true,points:path.map(p=>({...p})),maxDepth:limits.maxDepth,maxSlope:limits.maxSlope,boundaryClearance:limits.boundaryClearance,markerClearance:limits.markerClearance});
     }
     return {routes,unreachable};
   }
-  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors});
+  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,equipmentRole,vehicleRouteErrors});
 })(globalThis);

@@ -16,7 +16,7 @@
 <p class="muted">Сохранённые полигоны доступны другим пользователям. Их границы неизменны: для изменения создайте копию. ID выдаёт сервер: всего 50 на полигон для границы, техники и всех зон. В границе допускается до 37 вершин.</p></section>
 <section id="garage" hidden><div class="panel"><h2>Мой гараж</h2><form id="equipmentForm" class="controls">
 <label>Название<input id="equipmentName" maxlength="100" required placeholder="Например, Самосвал 1"></label>
-<label>Тип<select id="equipmentType"><option value="truck">Самосвал</option><option value="excavator">Экскаватор</option><option value="loader">Погрузчик</option><option value="robot">Робот</option></select></label>
+<label>Тип<select id="equipmentType"><option value="truck">Самосвал</option><option value="bulldozer">Бульдозер</option><option value="loader">Погрузчик</option><option value="robot">Робот</option></select></label>
 <button type="submit" class="primary">Добавить технику</button></form><p class="muted">Техника видна только вашему аккаунту. Сервер назначает свободный ArUco ID в пределах выбранного полигона.</p></div><div id="equipmentList" class="cards"></div></section>
 <section id="drawingLauncher" class="panel" hidden><div class="controls"><button id="openEditor" class="primary">Полигон</button><span id="drawingSummary" class="muted"></span></div><p class="muted">Редактор открывается в отдельном окне. Рисунок целиком помещается на экране.</p></section>
 <div id="editorBackdrop" hidden></div>
@@ -42,7 +42,7 @@
 <div class="controls"><button id="generateDepth" class="primary">Сгенерировать тестовую карту и пути</button><span id="depthSource" class="muted"></span>
 <label>Техника<select id="plannerEquipment"><option value="">Вся моя техника</option></select></label>
 <label>Допустимая глубина<input id="plannerMaxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label><label>Допустимый перепад<input id="plannerMaxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
-<p class="muted">Транспортная зона — вся область разрешённого движения; склад, добыча и зарядка должны находиться внутри неё. Пути добыча → склад и склад → зарядка строятся только в этой области. Приоритет: минимальный наибольший перепад, затем суммарные перепады, затем длина. Тестовая карта сохраняет проходы ко всем рабочим зонам.</p>
+<p class="muted">Транспортная зона — область разрешённого движения. Только самосвал перевозит груз добыча ↔ склад. Бульдозер работает на складе, погрузчик — в добыче; им строится только выезд со своей базы на зарядку и обратно. Самосвал тоже ездит на зарядку со склада. Приоритет: минимальный наибольший перепад, затем суммарные перепады, затем длина.</p>
 <p class="muted">Глубина и перепад заданы в условных единицах. Это редактируемая модель, не измерение камеры. Красные ячейки — препятствия. Маршрут проверяется по каждой пересечённой ячейке, включая границы.</p>
 <div class="controls"><label><input id="paintMode" type="checkbox"> Рисовать глубину</label><label><input id="showDepth" type="checkbox" checked> Показывать сетку глубин</label>
 <label>Глубина кисти<input id="paintValue" type="number" min="0" max="1000" step="0.1" value="1"></label><label><input id="paintBlocked" type="checkbox"> Препятствие</label>

@@ -43,7 +43,7 @@ function geometryTests(){
   const concavePath=G.findPath({x:225,y:525},{x:775,y:525},concave,G.emptyDepth());
   assert(concavePath&&G.inPolygon(concavePath,concave,false),'A* stays inside concave polygons');
   const zones=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]].map(([kind,coords],i)=>({id:'zone-'+i,name:kind,kind,points:points(coords)}));
-  const vehicle={id:'truck',name:'Truck'},terrainBoundary=points([[100,100],[900,100],[900,600],[100,600]]);
+  const vehicle={id:'truck',name:'Truck',type:'truck'},terrainBoundary=points([[100,100],[900,100],[900,600],[100,600]]);
   for(const seed of [...Array.from({length:32},(_,i)=>i),12345,23456,4294967295]){
     const map=G.generateDepth(terrainBoundary,zones,seed);assert.deepEqual(map,G.generateDepth(terrainBoundary,zones,seed),'Seed reproduces the map');
     assert(map.cells.includes(null)&&map.cells.some(v=>v>0));assert.equal(G.validateDepth(map).seed,seed);
@@ -81,6 +81,15 @@ function geometryTests(){
   const unionSafety=G.safetyContext(boundary,drivingUnion,[]);
   assert.deepEqual(G.clearanceErrors(points([[450,350],[450,550]]),{boundaryClearance:20,markerClearance:0},unionSafety),[],'Overlapping-area seams are not driving boundaries');
   assert.equal(G.pathMetrics(points([[100,350],[900,350]]),boundary,G.emptyDepth(),{...policy,markers:[{x:500,y:350}]}),null);
+  const fleet=[vehicle,{id:'dozer',name:'Dozer',type:'bulldozer'},{id:'loader',name:'Loader',type:'loader'},{id:'legacy',name:'Legacy',type:'excavator'}];
+  const fleetRoutes=G.planRoutes(terrainBoundary,zones,fleet,G.emptyDepth()).routes;assert.equal(fleetRoutes.length,5);
+  const byId=new Map(zones.map(z=>[z.id,z]));
+  for(const machine of fleet){const routes=fleetRoutes.filter(r=>r.equipmentId===machine.id);assert(routes.every(r=>r.bidirectional));assert.equal(routes.length,machine.type==='truck'?2:1);
+    const charge=routes.find(r=>r.purpose==='charging');assert(charge);assert.equal(byId.get(charge.fromZoneId).kind,machine.type==='loader'?'mining':'warehouse');assert.equal(byId.get(charge.toZoneId).kind,'charging');
+    assert(routes.every(r=>!G.vehicleRouteErrors(r,zones,machine).length));
+  }
+  const haul=fleetRoutes.find(r=>r.purpose==='haul');assert.equal(haul.equipmentId,'truck');
+  for(const machine of fleet.filter(v=>v.type!=='truck'))assert(G.vehicleRouteErrors({...haul,equipmentId:machine.id},zones,machine).length);
   assert.throws(()=>G.generateDepth(narrow,narrowZones,98765),/отступ|безопасного/,'Never shrink clearances to force a vehicle into a narrow corridor');
   console.log('PASS planner: 35 reproducible seeds connect every zone; narrow bent corridors, zero depth/slope, overlapping centres; flatter detours preferred to legal straight lines without destructive simplification; impassable imported maps remain blocked.');
   console.log('PASS geometry: concave boundary, thin and edge-adjacent obstacles, depth, cell jumps, invalid maps.');
@@ -91,8 +100,15 @@ async function main(){
   const db=new PGlite();
   await db.exec("create schema auth;create role anon;create role authenticated;create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth,public to authenticated;grant execute on function auth.uid() to authenticated;");
   await db.exec(fs.readFileSync(path.join(root,'supabase/schema.sql'),'utf8'));
+  const legacyUser=randomUUID(),legacyPolygon=randomUUID(),legacyEquipment=randomUUID();
+  await db.query('insert into auth.users(id) values($1)',[legacyUser]);
+  await db.query("insert into public.polygons(id,owner_id,name,geometry) values($1,$2,'Legacy fixture','{}')",[legacyPolygon,legacyUser]);
+  await db.exec("alter table public.equipment drop constraint equipment_type_check;alter table public.equipment add constraint equipment_type_check check(type in ('truck','excavator','loader','robot'));");
+  await db.query("insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values($1,$2,$3,'Existing custom name','excavator',49)",[legacyEquipment,legacyUser,legacyPolygon]);
   await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
   await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
+  const converted=(await db.query('select * from public.equipment where id=$1',[legacyEquipment])).rows[0];assert.equal(converted.type,'bulldozer');assert.equal(converted.marker_id,49);assert.equal(converted.name,'Existing custom name');
+  await db.query('delete from public.equipment where id=$1',[legacyEquipment]);await db.query('delete from public.polygons where id=$1',[legacyPolygon]);await db.query('delete from auth.users where id=$1',[legacyUser]);
   const accounts=new Map(),tokens=new Map();
   let queue=Promise.resolve();
   function serial(action){const result=queue.then(action);queue=result.catch(()=>{});return result;}
@@ -183,6 +199,7 @@ async function main(){
     assert.match(constraintMessage,/Введите название полигона/);assert(!constraintMessage.includes('polygons_name_check'));
     await page.locator('#polygonName').fill('  Общий полигон  ');await page.locator('#next').click();
     await page.waitForFunction(()=>!document.getElementById('garage').hidden);
+    assert.equal(await page.locator('#equipmentType option[value=bulldozer]').innerText(),'Бульдозер');assert.equal(await page.locator('#equipmentType option[value=excavator]').count(),0);
     await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button').click();await page.locator('.equipment-card').waitFor();
     const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
     assert.equal(fs.readFileSync(path.join(output,'setup-markers.pdf')).subarray(0,5).toString(),'%PDF-');
@@ -201,7 +218,9 @@ async function main(){
     const autoSafety=G.safetyContext(autoProject.polygon.geometry.points,autoProject.zones.filter(z=>z.kind==='transport').map(z=>z.points),G.routingMarkers(autoProject.polygon.geometry.points,autoProject.zones));
     for(const route of autoProject.routes)assert.deepEqual(G.clearanceErrors(route.points,route,autoSafety),[],'Generated routes keep the requested gaps');
     for(const route of autoProject.routes)assert.deepEqual(G.routeErrors(route,autoProject.polygon.geometry.points,autoProject.depth),[]);
-    await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
+    await page.locator('#toggleProperties').click();assert.equal(await page.locator('#shapeList .route-number-badge').count(),2);
+    await page.locator('#shapeList .route-number-badge').first().click();assert.equal(await page.locator('polyline[data-route-id="'+autoProject.routes[0].id+'"]').getAttribute('stroke-width'),'6');
+    await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
     const firstPath=autoProject.routes[0].points;await clickAt((firstPath[0].x+firstPath[1].x)/2,(firstPath[0].y+firstPath[1].y)/2);
     assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
     await page.locator('#applyShape').click();await page.locator('#save').click();
@@ -262,6 +281,19 @@ async function main(){
     const aliceEquipment=(await asUser(alice.id,'select * from public.equipment')).rows;const bobEquipment=(await asUser(bob.id,'select * from public.equipment')).rows;
     assert.equal(aliceEquipment.length,1);assert.equal(bobEquipment.length,1);assert.notEqual(aliceEquipment[0].marker_id,bobEquipment[0].marker_id);
     assert.equal((await asUser(bob.id,'select * from public.workspaces')).rows[0].zones.length,0);
+    const dozer=await rpc(alice.id,'create_equipment',['Dozer test','excavator']),loader=await rpc(alice.id,'create_equipment',['Loader test','loader']);assert.equal(dozer.type,'bulldozer');
+    let roleWorkspace=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
+    const boundaryPoints=(await asUser(alice.id,'select geometry from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].geometry.points;
+    for(const machine of [dozer,loader]){
+      const truckHaul=savedAuto.routes.find(r=>r.purpose==='haul');
+      const wrong=[{...truckHaul,equipmentId:machine.id}];
+      roleWorkspace=await rpc(alice.id,'save_workspace',[JSON.stringify(roleWorkspace.zones),JSON.stringify(wrong),JSON.stringify(roleWorkspace.depth),roleWorkspace.revision]);
+      await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Non-trucks cannot use hauling routes');
+      const valid=G.planRoutes(boundaryPoints,roleWorkspace.zones,[machine],roleWorkspace.depth).routes.map((route,i)=>({...route,id:randomUUID(),number:i+1,points:route.points.map(p=>({...p,id:randomUUID()}))}));assert.equal(valid.length,1);
+      roleWorkspace=await rpc(alice.id,'save_workspace',[JSON.stringify(roleWorkspace.zones),JSON.stringify(valid),JSON.stringify(roleWorkspace.depth),roleWorkspace.revision]);
+      assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Every vehicle can charge from its own base');
+    }
+    await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),roleWorkspace.revision]);await rpc(alice.id,'advance_setup',[]);
     await assert.rejects(asUser(bob.id,"update public.profiles set registration_status='ready'"),/permission denied/);
     await assert.rejects(asUser(bob.id,"update public.polygons set name='hijack'"),/permission denied/);
     await assert.rejects(rpc(bob.id,'create_polygon',['Invalid',JSON.stringify(points([[0,0],[100,100],[0,100],[100,0]]))]),/многоугольник/);

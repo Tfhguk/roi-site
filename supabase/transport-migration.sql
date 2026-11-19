@@ -1,4 +1,17 @@
 begin;
+alter table public.equipment drop constraint if exists equipment_type_check;
+update public.equipment set type='bulldozer' where type='excavator';
+alter table public.equipment add constraint equipment_type_check check(type in ('truck','bulldozer','loader','robot'));
+create or replace function public.create_equipment(p_name text,p_type text) returns public.equipment
+language plpgsql security definer set search_path='' as $$
+declare uid uuid:=auth.uid(); pid uuid; eid uuid:=gen_random_uuid(); mid int; result public.equipment;
+begin
+ select polygon_id into pid from public.profiles where id=uid for update;
+ if uid is null or pid is null then raise exception 'Сначала выберите полигон.'; end if;
+ mid:=roi_private.allocate_marker(pid,uid,'equipment',eid);
+ insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values(eid,uid,pid,btrim(p_name),case when p_type='excavator' then 'bulldozer' else p_type end,mid) returning * into result;
+ return result;
+end $$;
 -- Check complete segments against the union of all permitted driving areas.
 create or replace function roi_private.within_transport(points jsonb,zones jsonb,closed boolean default false) returns boolean
 language plpgsql immutable set search_path='' as $$
@@ -99,6 +112,19 @@ begin
 exception when others then return false;
 end $$;
 
+create or replace function roi_private.vehicle_route_ok(route jsonb,vehicle_type text,zones jsonb) returns boolean
+language plpgsql immutable set search_path='' as $$
+declare base_kind text:=case when vehicle_type='loader' then 'mining' else 'warehouse' end; endpoint jsonb;
+begin
+ if vehicle_type='truck' then return true; end if;
+ if route->>'purpose'='haul' then return false; end if;
+ for endpoint in select route->'points'->0 union all select route->'points'->(jsonb_array_length(route->'points')-1) loop
+  if not exists(select 1 from jsonb_array_elements(zones) z where z->>'kind' in (base_kind,'charging') and roi_private.inside(endpoint,z->'points')) then return false; end if;
+ end loop;
+ return true;
+exception when others then return false;
+end $$;
+
 create or replace function public.advance_setup() returns public.profiles
 language plpgsql security definer set search_path='' as $$
 declare profile public.profiles; ws public.workspaces; boundary jsonb; route jsonb; kind text; zone jsonb;
@@ -124,7 +150,8 @@ begin
     if not exists(select 1 from public.equipment where id=(route->>'equipmentId')::uuid and user_id=profile.id and polygon_id=profile.polygon_id) or
       not roi_private.path_ok(route->'points',boundary,ws.depth,(route->>'maxDepth')::float8,(route->>'maxSlope')::float8) or
       not roi_private.within_transport(route->'points',ws.zones) or
-      not roi_private.route_clearance_ok(route,boundary,ws.zones) then raise exception 'Траектория недопустима: проверьте технику, транспортную зону, отступы от границ и рукомаркеров, препятствия и глубины.'; end if;
+      not roi_private.route_clearance_ok(route,boundary,ws.zones) or
+      not roi_private.vehicle_route_ok(route,(select type from public.equipment where id=(route->>'equipmentId')::uuid),ws.zones) then raise exception 'Траектория недопустима: проверьте назначение техники, её базу, транспортную зону, отступы от границ и рукомаркеров, препятствия и глубины.'; end if;
    end loop;
    profile.registration_status:='ready';
   end if;

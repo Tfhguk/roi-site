@@ -83,3 +83,7 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 .equipment-routes img{width:38px;height:38px;flex:none}.equipment-routes p{margin:0;font-size:.8rem}.route-numbers{font-weight:600}
 #routeClearances label{margin:10px 0}
 @media(max-width:750px){#routeLegend{top:auto;bottom:24px;max-width:80%;max-height:30%}}
+.route-list-item .route-number-badge{font-size:1rem;font-weight:700;padding:8px 12px;min-width:58px;align-self:flex-start}
+.route-list-item .grow{min-width:120px}.route-owner{display:block;color:var(--muted);font-size:.75rem;margin-top:4px}
+.route-list-item.route-focused{background:#164e6344;border-radius:8px;padding:10px 6px}
+#routeLegendItems .legend-route{display:block;width:100%;text-align:left;padding:5px;margin-top:5px;font-size:.72rem}
