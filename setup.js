@@ -1,9 +1,9 @@
 (async function () {
   "use strict";
   const $=id=>document.getElementById(id), G=SetupGeometry;
-  const stages=["polygon","garage","zones","routes"], kinds={warehouse:"Склад",charging:"Зарядная станция",mining:"Зона добычи",transport:"Зона транспортировки"};
+  const stages=["polygon","garage","zones","routes"], kinds={warehouse:"Склад",charging:"Зарядная станция",mining:"Зона добычи",transport:"Транспортная зона"};
   const titles={polygon:"Создайте или выберите полигон",garage:"Создайте технику в своём гараже",zones:"Обозначьте рабочие зоны",routes:"Создайте допустимые траектории"};
-  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Создайте склад, зарядную станцию, зону добычи и зону транспортировки внутри выбранного полигона.",routes:"Пути между зонами строятся автоматически по карте глубины. Редактируйте готовые траектории, перемещая точки и добавляя вершины на отрезках."};
+  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Сначала нарисуйте транспортную зону — всю область движения техники. Внутри неё разместите склад, зарядку и добычу.",routes:"Пути добыча → склад и склад → зарядка строятся по наиболее пологим проходам внутри транспортной зоны. Готовые траектории можно редактировать."};
   let profile,polygons=[],equipment=[],ws,step="polygon",selectedId=null,draft=null,selectedVertex=-1,dirty=false,busy=false;
   let stream,drag=null,painting=false,history=[];
   let noticeTimer;
@@ -64,6 +64,7 @@
   function undo(){const previous=history.pop();if(!previous)return;({draft,ws,selectedId,selectedVertex}=previous);changed();render();}
   function currentPolygon(){return polygons.find(p=>p.id===(step==="polygon"?selectedId:profile.polygon_id));}
   function boundary(){return currentPolygon()?.geometry.points||[];}
+  function drivingAreas(){return (ws?.zones||[]).filter(z=>z.kind==="transport").map(z=>z.points);}
   function ownEquipment(){return equipment.filter(item=>item.polygon_id===profile.polygon_id);}
   function permitted(target){return stages.indexOf(target)<= (profile.registration_status==="ready"?3:stages.indexOf(profile.registration_status));}
   function newPoint(p){return {id:uid(),x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10};}
@@ -109,6 +110,8 @@
     $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=Boolean(selectedId)||!draft||draft.points.length<3;
     $("clearShape").disabled=!editable();$("deleteVertex").disabled=!editable()||selectedVertex<0;
     $("depthPanel").hidden=step!=="routes";$("shapeProperties").hidden=!draft||step==="polygon";
+    $("editorWindow").classList.toggle("routes-layout",step==="routes");
+    $("toggleProperties").textContent=step==="routes"?"Траектории и свойства":"Свойства";
     $("autoRoutes").hidden=step!=="routes";
     const plannedEquipment=$("plannerEquipment").value;
     $("plannerEquipment").replaceChildren(new Option("Вся моя техника",""),...ownEquipment().map(e=>new Option(e.name,e.id)));
@@ -157,10 +160,11 @@
       row.style.display="block";$("vertexList").append(row);
     });
     $("validation").replaceChildren();
-    if(step==="routes")for(const route of ws.routes){const errors=G.routeErrors(route,boundary(),ws.depth);$("validation").append(paragraph(route.name+": "+(errors.length?errors.join(" "):"Допустима"),errors.length?"error":""));}
+    if(step==="routes")for(const route of ws.routes){const errors=G.routeErrors(route,boundary(),ws.depth,drivingAreas());$("validation").append(paragraph(route.name+": "+(errors.length?errors.join(" "):"Допустима"),errors.length?"error":""));}
     if(step==="zones"){
       const missing=Object.keys(kinds).filter(k=>!ws.zones.some(z=>z.kind===k));
       $("validation").append(paragraph(missing.length?"Ещё нужны: "+missing.map(k=>kinds[k]).join(", "):"Все четыре типа зон созданы."));
+      for(const error of G.zoneErrors(ws.zones,boundary()))$("validation").append(paragraph(error,"error"));
     }
   }
   function svg(tag,attributes){const el=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const [key,value]of Object.entries(attributes))el.setAttribute(key,value);return el;}
@@ -193,8 +197,8 @@
       });
     }
     if(step!=="polygon")drawShape(boundary(),{color:"#94a3b8",fill:"#38bdf809"});
-    if(step!=="polygon")ws.zones.forEach((zone,i)=>{if(step==="zones"&&draft?.index===i)return;drawShape(zone.points,{color:({warehouse:"#c4b5fd",charging:"#4ade80",mining:"#fb923c",transport:"#60a5fa"})[zone.kind],fill:"#38bdf80a"});});
-    if(step==="routes")ws.routes.forEach((route,i)=>{if(draft?.index===i)return;drawShape(route.points,{closed:false,color:G.routeErrors(route,boundary(),ws.depth).length?"#fb7185":"#4ade80",marker:false});});
+    if(step!=="polygon")ws.zones.map((zone,i)=>({zone,i})).sort((a,b)=>(a.zone.kind!=="transport")-(b.zone.kind!=="transport")).forEach(({zone,i})=>{if(step==="zones"&&draft?.index===i)return;drawShape(zone.points,{color:({warehouse:"#c4b5fd",charging:"#4ade80",mining:"#fb923c",transport:"#60a5fa"})[zone.kind],fill:zone.kind==="transport"?"#38bdf81a":"#38bdf80a"});});
+    if(step==="routes")ws.routes.forEach((route,i)=>{if(draft?.index===i)return;drawShape(route.points,{closed:false,color:G.routeErrors(route,boundary(),ws.depth,drivingAreas()).length?"#fb7185":"#4ade80",marker:false});});
     if(draft)drawShape(draft.points,{closed:step!=="routes"&&draft.closed,active:Boolean(editable()),marker:step!=="routes",fill:step!=="routes"&&draft.closed?"#38bdf81a":"none"});
     $("deleteVertex").disabled=!editable()||selectedVertex<0;$("finishShape").disabled=!editable()||draft.points.length<3;
   }
@@ -251,6 +255,7 @@
     const closed=step==="zones";
     if(!G.validPoints(draft.points,closed))throw Error(closed?"Нужно не менее трёх вершин без самопересечений.":"Нужно не менее двух разных точек без самопересечений.");
     if(closed&&!G.inPolygon(draft.points,boundary()))throw Error("Зона должна целиком находиться внутри полигона.");
+    if(closed&&draft.kind!=="transport"&&drivingAreas().length&&!G.inAreas(draft.points,drivingAreas(),true))throw Error("Склад, зарядная станция и добыча должны находиться внутри транспортной зоны.");
     const name=$("shapeName").value.trim();if(!name)throw Error("Введите название фигуры.");
     snapshot();
     const item={id:draft.id,name,points:clone(draft.points)};
@@ -263,9 +268,11 @@
   $("applyShape").onclick=()=>run(applyDraft);
   function createAutoRoutes(newMap=false){
     if(draft)throw Error("Сначала сохраните редактируемую фигуру в проект.");
-    const depth=newMap?G.generateDepth(boundary(),ws.zones,crypto.getRandomValues(new Uint32Array(1))[0]):ws.depth;
+    const limits={maxDepth:Number($("plannerMaxDepth").value),maxSlope:Number($("plannerMaxSlope").value)};
+    const depth=newMap?G.generateDepth(boundary(),ws.zones,crypto.getRandomValues(new Uint32Array(1))[0],40,28,limits):ws.depth;
     const vehicles=ownEquipment().filter(e=>!$("plannerEquipment").value||e.id===$("plannerEquipment").value);
-    const result=G.planRoutes(boundary(),ws.zones,vehicles,depth,{maxDepth:Number($("plannerMaxDepth").value),maxSlope:Number($("plannerMaxSlope").value)});
+    const result=G.planRoutes(boundary(),ws.zones,vehicles,depth,limits);
+    if(newMap&&result.unreachable.length)throw Error("Тестовая карта не обеспечивает все соединения зон. Прежние карта и пути сохранены. "+result.unreachable.join("; "));
     if(!result.routes.length)throw Error("Нет допустимого прохода между зонами при заданной глубине и перепаде. Проверьте карту и увеличьте разрешение сетки при узких проходах. "+result.unreachable.slice(0,5).join("; "));
     const routes=result.routes.map(route=>({...route,id:uid(),points:route.points.map(p=>({...p,id:uid()}))}));
     // Changing one vehicle keeps every other vehicle's edited routes.
@@ -314,11 +321,12 @@
     await save();
     if(step==="zones"){
       if(Object.keys(kinds).some(k=>!ws.zones.some(z=>z.kind===k)))throw Error("Создайте все четыре типа зон.");
+      const errors=G.zoneErrors(ws.zones,boundary());if(errors.length)throw Error(errors.join("\n"));
       if(profile.registration_status==="zones")profile=await AppCloud.advance();
       activate("routes");return;
     }
     if(!ws.routes.length)throw Error("Создайте хотя бы одну траекторию.");
-    if(ws.routes.some(route=>G.routeErrors(route,boundary(),ws.depth).length))throw Error("Исправьте недопустимые траектории.");
+    if(ws.routes.some(route=>G.routeErrors(route,boundary(),ws.depth,drivingAreas()).length))throw Error("Исправьте недопустимые траектории.");
     profile=await AppCloud.advance();dirty=false;releaseCamera();location.href="welcome.html";
   });
   $("back").onclick=()=>activate(stages[Math.max(0,stages.indexOf(step)-1)]);

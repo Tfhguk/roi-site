@@ -65,3 +65,16 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
  #editorHint{display:none}#editorWindow footer{padding-top:4px}#editorWindow footer button{padding:4px;font-size:.72rem}
  #depthPanel{max-height:24vh;font-size:.75rem}
 }
+/* Route tools float above the field, preserving its full available size. */
+#editorWindow.routes-layout{max-width:none}
+#editorWindow.routes-layout .workspace{grid-template-columns:minmax(0,1fr);gap:0}
+#editorWindow.routes-layout #toggleProperties{display:block;margin-left:auto}
+#editorWindow.routes-layout #closeEditor{margin-left:0}
+#editorWindow.routes-layout aside.panel{display:none;position:absolute;inset:0 0 0 auto;width:min(340px,90%);z-index:5;box-shadow:-8px 0 25px #0008;background:var(--panel)}
+#editorWindow.routes-layout.properties-open aside.panel{display:block}
+#editorWindow.routes-layout #depthPanel{position:absolute;top:0;left:0;z-index:6;max-height:100%;max-width:95%;width:fit-content;background:var(--panel);box-shadow:6px 6px 22px #0008}
+#editorWindow.routes-layout #depthPanel[open]{width:min(440px,95%);height:100%;overflow:auto}
+#editorWindow.routes-layout #depthPanel summary{position:sticky;top:-9px;background:var(--panel);padding:4px 0 8px;z-index:1}
+#editorWindow.routes-layout .controls.panel{padding:6px}
+#editorWindow.routes-layout .controls.panel>label{flex-direction:row;align-items:center}
+#editorWindow.routes-layout .controls.panel select{padding:6px}

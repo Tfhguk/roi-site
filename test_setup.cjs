@@ -33,18 +33,47 @@ function geometryTests(){
   assert.equal(G.findPath(start,end,boundary,cliff),null,'A* obeys slope constraints');
   assert(G.findPath(start,end,boundary,cliff,{maxSlope:3}));
   assert.equal(G.findPath(start,end,boundary,cliff,{maxDepth:2,maxSlope:3}),null,'A* obeys depth limits');
+  const ridge=G.emptyDepth();for(let row=2;row<12;row++)for(let col=9;col<=11;col++)ridge.cells[row*20+col]=1;
+  const straight=[start,end],smooth=G.findPath(start,end,boundary,ridge);
+  assert.deepEqual(G.routeErrors({points:straight,maxDepth:5,maxSlope:2},boundary,ridge),[],'The straight route is legal but rough');
+  assert(smooth&&smooth.length>2,'Prefer a curved flat detour even when the direct line is legal');
+  const directMetrics=G.pathMetrics(straight,boundary,ridge),smoothMetrics=G.pathMetrics(smooth,boundary,ridge);
+  assert.equal(smoothMetrics.peak,0);assert.equal(smoothMetrics.variation,0);assert(smoothMetrics.length>directMetrics.length);
+  assert(directMetrics.peak>smoothMetrics.peak,'Smoothing cannot cut the route back across the ridge');
   const concavePath=G.findPath({x:225,y:525},{x:775,y:525},concave,G.emptyDepth());
   assert(concavePath&&G.inPolygon(concavePath,concave,false),'A* stays inside concave polygons');
-  const zones=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[300,380],[500,380],[500,480],[300,480]]]].map(([kind,coords],i)=>({id:'zone-'+i,name:kind,kind,points:points(coords)}));
+  const zones=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]].map(([kind,coords],i)=>({id:'zone-'+i,name:kind,kind,points:points(coords)}));
   const vehicle={id:'truck',name:'Truck'},terrainBoundary=points([[100,100],[900,100],[900,600],[100,600]]);
-  for(const seed of [1,2,3,4,5,12345,23456]){
+  for(const seed of [...Array.from({length:32},(_,i)=>i),12345,23456,4294967295]){
     const map=G.generateDepth(terrainBoundary,zones,seed);assert.deepEqual(map,G.generateDepth(terrainBoundary,zones,seed),'Seed reproduces the map');
     assert(map.cells.includes(null)&&map.cells.some(v=>v>0));assert.equal(G.validateDepth(map).seed,seed);
-    const planned=G.planRoutes(terrainBoundary,zones,[vehicle],map);assert.equal(planned.routes.length,3,'Three default connections for seed '+seed);assert.deepEqual(planned.unreachable,[]);
-    for(const route of planned.routes)assert.deepEqual(G.routeErrors(route,terrainBoundary,map),[]);
+    const planned=G.planRoutes(terrainBoundary,zones,[vehicle],map);assert.equal(planned.routes.length,2,'Two default connections for seed '+seed);assert.deepEqual(planned.unreachable,[]);
+    for(const route of planned.routes){assert.deepEqual(G.routeErrors(route,terrainBoundary,map,[zones[3].points]),[]);assert.notEqual(route.toZoneId,zones[3].id,'Driving area is not a destination');}
+    const covered=new Set(planned.routes.flatMap(route=>[route.fromZoneId,route.toZoneId]));assert(zones.filter(z=>z.kind!=='transport').every(zone=>covered.has(zone.id)),'Every working zone is connected');
   }
-  assert.throws(()=>G.planRoutes(terrainBoundary,zones,Array(11).fill(vehicle),G.emptyDepth()),/30/);
-  console.log('PASS planner: reproducible terrain, A* detours, impassable walls, depth/slope limits, concave boundaries and zone connections.');
+  // An S-shaped neck has no cell centres at this resolution. Continuous
+  // corridor reservation and polygon visibility still have to connect it.
+  const narrow=points([[100,100],[400,100],[400,290],[600,290],[600,400],[900,400],[900,650],[590,650],[590,300],[390,300],[390,600],[100,600]]);
+  assert(G.validPoints(narrow));
+  const smallZone=(id,kind,x,y)=>({id,name:id,kind,points:points([[x-10,y-10],[x+10,y-10],[x+10,y+10],[x-10,y+10]])});
+  const narrowZones=[smallZone('store','warehouse',250,350),smallZone('mine','mining',750,500),smallZone('charge','charging',250,150),{id:'drivable',name:'Driving area',kind:'transport',points:narrow}];
+  for(const limits of [{maxDepth:5,maxSlope:2},{maxDepth:1,maxSlope:.01},{maxDepth:0,maxSlope:0}]){
+    const map=G.generateDepth(narrow,narrowZones,98765,20,14,limits),planned=G.planRoutes(narrow,narrowZones,[vehicle],map,limits);
+    assert.equal(planned.routes.length,2,'All narrow-neck connections remain reachable '+JSON.stringify(limits));assert.deepEqual(planned.unreachable,[]);
+    for(const route of planned.routes)assert.deepEqual(G.routeErrors(route,narrow,map),[]);
+  }
+  const overlapping=[{...zones[0],id:'a',kind:'warehouse'},{...zones[0],id:'b',kind:'mining'},zones[3]],overlapMap=G.generateDepth(terrainBoundary,overlapping,33);
+  assert.equal(G.planRoutes(terrainBoundary,overlapping,[vehicle],overlapMap).routes.length,1,'Coincident centres still reach the destination zone');
+  assert.throws(()=>G.planRoutes(terrainBoundary,zones,Array(16).fill(vehicle),G.emptyDepth()),/30/);
+  const concaveDriving=[concave];
+  const restricted=G.findPath({x:225,y:525},{x:775,y:525},boundary,G.emptyDepth(),{transportAreas:concaveDriving});
+  assert(restricted&&G.inAreas(restricted,concaveDriving),'Cannot shortcut through excluded parts of the driving area');
+  assert(G.routeErrors({points:points([[225,525],[775,525]]),maxDepth:5,maxSlope:2},boundary,G.emptyDepth(),concaveDriving).some(e=>e.includes('транспортной')));
+  assert.throws(()=>G.generateDepth(terrainBoundary,[...zones.slice(0,3),{...zones[3],points:points([[700,400],[800,400],[800,500],[700,500]])}],1),/должна/);
+  const drivingUnion=[points([[100,100],[500,100],[500,500],[100,500]]),points([[400,400],[900,400],[900,600],[400,600]])];
+  const unionPath=G.findPath({x:200,y:200},{x:800,y:550},boundary,G.emptyDepth(),{transportAreas:drivingUnion});
+  assert(!G.inAreas(points([[200,200],[800,550]]),drivingUnion));assert(unionPath&&G.inAreas(unionPath,drivingUnion),'Can move across overlapping transport areas without cutting excluded space');
+  console.log('PASS planner: 35 reproducible seeds connect every zone; narrow bent corridors, zero depth/slope, overlapping centres; flatter detours preferred to legal straight lines without destructive simplification; impassable imported maps remain blocked.');
   console.log('PASS geometry: concave boundary, thin and edge-adjacent obstacles, depth, cell jumps, invalid maps.');
 }
 
@@ -53,6 +82,8 @@ async function main(){
   const db=new PGlite();
   await db.exec("create schema auth;create role anon;create role authenticated;create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth,public to authenticated;grant execute on function auth.uid() to authenticated;");
   await db.exec(fs.readFileSync(path.join(root,'supabase/schema.sql'),'utf8'));
+  await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
+  await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
   const accounts=new Map(),tokens=new Map();
   let queue=Promise.resolve();
   function serial(action){const result=queue.then(action);queue=result.catch(()=>{});return result;}
@@ -147,34 +178,37 @@ async function main(){
     const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
     assert.equal(fs.readFileSync(path.join(output,'setup-markers.pdf')).subarray(0,5).toString(),'%PDF-');
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
-    const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[300,380],[500,380],[500,480],[300,480]]]];
+    const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]];
     for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#applyShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
     await page.evaluate(()=>{crypto.getRandomValues=array=>{array[0]=12345;return array;};});
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('depthPanel').hidden);
-    assert.equal(await page.locator('#shapeList .item').count(),3,'First visit creates routes automatically');
+    assert.equal(await page.locator('#shapeList .item').count(),2,'First visit creates working-zone routes automatically');
+    await checkEditorViewport();
     assert(!/препятствие|Превышен|выходит/.test(await page.locator('#validation').innerText()));
     const autoDownload=page.waitForEvent('download');await page.locator('#exportWorkspace').click();await(await autoDownload).saveAs(path.join(output,'auto-routes.json'));
-    const autoProject=JSON.parse(fs.readFileSync(path.join(output,'auto-routes.json'),'utf8'));assert.equal(autoProject.depth.seed,12345);assert.equal(autoProject.routes.length,3);
+    const autoProject=JSON.parse(fs.readFileSync(path.join(output,'auto-routes.json'),'utf8'));assert.equal(autoProject.depth.seed,12345);assert.equal(autoProject.routes.length,2);
     for(const route of autoProject.routes)assert.deepEqual(G.routeErrors(route,autoProject.polygon.geometry.points,autoProject.depth),[]);
-    await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
+    await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
     const firstPath=autoProject.routes[0].points;await clickAt((firstPath[0].x+firstPath[1].x)/2,(firstPath[0].y+firstPath[1].y)/2);
     assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
     await page.locator('#applyShape').click();await page.locator('#save').click();
-    const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,3);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
+    const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,2);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
     assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Server independently accepts generated and edited paths');
-    await page.reload();await page.locator('#autoRoutes').waitFor();assert.equal(await page.locator('#shapeList .item').count(),3,'Saved automatic routes survive reload');
+    await page.reload();await page.locator('#autoRoutes').waitFor();assert.equal(await page.locator('#shapeList .item').count(),2,'Saved automatic routes survive reload');
+    const mapBefore=await page.locator('#map').boundingBox();
     await page.locator('#depthPanel summary').click();await page.locator('#plannerMaxDepth').fill('0');await page.locator('#autoRoutes').click();
-    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Нет допустимого прохода'));assert.equal(await page.locator('#shapeList .item').count(),3,'Failed rebuilding preserves edited routes');
-    await page.locator('#plannerMaxDepth').fill('5');await page.locator('#autoRoutes').click();await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Построено траекторий: 3'));
+    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Нет допустимого прохода'));assert.equal(await page.locator('#shapeList .item').count(),2,'Failed rebuilding preserves edited routes');
+    await page.locator('#plannerMaxDepth').fill('5');await page.locator('#autoRoutes').click();await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Построено траекторий: 2'));
     await page.evaluate(()=>{crypto.getRandomValues=array=>{array[0]=23456;return array;};});await page.locator('#generateDepth').click();
-    await page.waitForFunction(()=>document.getElementById('depthSource').textContent.includes('23456'));assert.equal(await page.locator('#shapeList .item').count(),3);
+    await page.waitForFunction(()=>document.getElementById('depthSource').textContent.includes('23456'));assert.equal(await page.locator('#shapeList .item').count(),2);
+    const mapAfter=await page.locator('#map').boundingBox();assert(Math.abs(mapBefore.width-mapAfter.width)<1&&Math.abs(mapBefore.height-mapAfter.height)<1,'Settings never shrink the route map');
     await page.screenshot({path:path.join(output,'setup-auto-routes.png')});
     await page.locator('#dismissNotification').click();
-    while(await page.locator('#shapeList .item').count()){const count=await page.locator('#shapeList .item').count();await page.locator('#shapeList .danger').first().click();await page.waitForFunction(n=>document.querySelectorAll('#shapeList .item').length===n-1,count);}
+    await page.locator('#toggleProperties').click();while(await page.locator('#shapeList .item').count()){const count=await page.locator('#shapeList .item').count();await page.locator('#shapeList .danger').first().click();await page.waitForFunction(n=>document.querySelectorAll('#shapeList .item').length===n-1,count);}
     fs.writeFileSync(path.join(output,'flat-depth.json'),JSON.stringify(G.emptyDepth()));await page.locator('#importDepth').setInputFiles(path.join(output,'flat-depth.json'));
     await page.waitForFunction(()=>document.getElementById('depthCols').value==='20');
     await page.locator('#depthPanel summary').click();
-    await page.locator('#newShape').click();await clickAt(150,550);await clickAt(850,550);await page.locator('#applyShape').click();
+    await page.locator('#newShape').click();await clickAt(150,550);await clickAt(850,550);await page.locator('#toggleProperties').click();await page.locator('#applyShape').click();
     await page.locator('#depthPanel summary').click();await page.locator('#paintMode').check();await page.locator('#paintBlocked').check();await clickAt(525,575);
     assert.match(await page.locator('#validation').innerText(),/препятствие/);
     await page.locator('#next').click();await page.waitForFunction(()=>document.getElementById('message').textContent.includes('Исправьте'));
@@ -185,6 +219,15 @@ async function main(){
     await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
     const aliceWS=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(aliceWS.zones.length,4);assert.equal(aliceWS.routes.length,1);
+    const outsideDriving=structuredClone(aliceWS.routes);outsideDriving[0].points=points([[150,550],[120,550],[120,150],[850,150],[850,550]]);
+    const invalidDraft=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(outsideDriving),JSON.stringify(aliceWS.depth),aliceWS.revision]);
+    await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Server rejects leaving the driving area even inside the outer polygon');
+    const restoredDriving=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),invalidDraft.revision]);
+    const invalidZones=structuredClone(aliceWS.zones),transport=invalidZones.find(z=>z.kind==='transport');transport.points=transport.points.map((p,i)=>({...p,...[{x:300,y:380},{x:500,y:380},{x:500,y:480},{x:300,y:480}][i]}));
+    const badZoneDraft=await rpc(alice.id,'save_workspace',[JSON.stringify(invalidZones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),restoredDriving.revision]);
+    await assert.rejects(rpc(alice.id,'advance_setup',[]),/транспортной зоны/,'Server requires every working zone to be inside the driving area');
+    const finalRestored=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),badZoneDraft.revision]);
+    aliceWS.revision=finalRestored.revision;await rpc(alice.id,'advance_setup',[]);
     await assert.rejects(rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),aliceWS.revision-1]),/другой вкладке/);
     const blocked=structuredClone(aliceWS.depth);blocked.cells[11*20+10]=null;
     await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(blocked),aliceWS.revision]);
@@ -209,7 +252,14 @@ async function main(){
     await assert.rejects(rpc(bob.id,'advance_setup',[]),/четыре типа/);
     const reservations=(await asUser(alice.id,'select marker_id from public.marker_reservations where polygon_id=$1',[aliceProfile.polygon_id])).rows;
     assert.equal(new Set(reservations.map(r=>r.marker_id)).size,reservations.length);
-    await page.goto(base+'/roi-site/setup.html?step=routes');await page.locator('#newShape').waitFor();await page.screenshot({path:path.join(output,'setup-live.png'),fullPage:true});
+    await page.goto(base+'/roi-site/setup.html?step=routes');await page.locator('#newShape').waitFor();
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){
+      await page.setViewportSize(viewport);await checkEditorViewport();
+      const before=await page.locator('#map').boundingBox();await page.locator('#depthPanel summary').click();await checkEditorViewport();const after=await page.locator('#map').boundingBox();
+      assert(Math.abs(before.width-after.width)<1&&Math.abs(before.height-after.height)<1,'Route settings preserve field size at '+viewport.width);
+      await page.locator('#depthPanel summary').click();
+    }
+    await page.screenshot({path:path.join(output,'setup-live.png'),fullPage:true});
     assert.deepEqual(errors,[]);
     for(let i=reservations.length;i<50;i++)await rpc(alice.id,'create_equipment',['Capacity '+i,'robot']);
     await assert.rejects(rpc(alice.id,'create_equipment',['Overflow','robot']),/50 ArUCo/);

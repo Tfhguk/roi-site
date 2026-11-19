@@ -25,7 +25,7 @@
 <section id="editor"><div class="controls panel">
 <label>Основа<select id="background"><option value="grid">Пустое поле</option><option value="camera">Камера</option></select></label>
 <button id="freezeCamera" hidden>Зафиксировать кадр</button><button id="resumeCamera" hidden>Продолжить камеру</button>
-<label id="zoneKindLabel" hidden>Тип зоны<select id="zoneKind"><option value="warehouse">Склад</option><option value="charging">Зарядная станция</option><option value="mining">Зона добычи</option><option value="transport">Зона транспортировки</option></select></label>
+<label id="zoneKindLabel" hidden>Тип зоны<select id="zoneKind"><option value="transport">Транспортная зона — где можно ездить</option><option value="warehouse">Склад</option><option value="charging">Зарядная станция</option><option value="mining">Зона добычи</option></select></label>
 <button id="newShape" hidden>Новая зона</button><button id="autoRoutes" class="primary" hidden>Построить автоматически</button><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button>
 <button id="deleteVertex" disabled>Удалить вершину</button><button id="clearShape">Очистить фигуру</button></div>
 <div class="workspace"><div class="canvas-panel"><div class="canvas-fit" id="canvasFit"><div class="stage"><video id="camera" autoplay playsinline muted hidden></video><canvas id="frozen" width="1000" height="700" hidden></canvas>
@@ -36,17 +36,17 @@
 <div id="routeProperties" hidden><label>Техника<select id="routeEquipment"></select></label>
 <label>Максимальная глубина<input id="maxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label>
 <label>Максимальный перепад между ячейками<input id="maxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
-<button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside></div>
+<button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside>
 <details id="depthPanel" class="panel" hidden><summary>Карта глубины и автопостроение</summary>
 <div class="controls"><button id="generateDepth" class="primary">Сгенерировать тестовую карту и пути</button><span id="depthSource" class="muted"></span>
 <label>Техника<select id="plannerEquipment"><option value="">Вся моя техника</option></select></label>
 <label>Допустимая глубина<input id="plannerMaxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label><label>Допустимый перепад<input id="plannerMaxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
-<p class="muted">Автопостроение: добыча → склад, склад → транспортировка и зарядка. Изменяйте готовые пути через «Изменить»: двигайте вершины и добавляйте точки на отрезках. После изменения карты нажмите «Построить автоматически» или исправьте пути вручную.</p>
+<p class="muted">Транспортная зона — вся область разрешённого движения; склад, добыча и зарядка должны находиться внутри неё. Пути добыча → склад и склад → зарядка строятся только в этой области. Приоритет: минимальный наибольший перепад, затем суммарные перепады, затем длина. Тестовая карта сохраняет проходы ко всем рабочим зонам.</p>
 <p class="muted">Глубина и перепад заданы в условных единицах. Это редактируемая модель, не измерение камеры. Красные ячейки — препятствия. Маршрут проверяется по каждой пересечённой ячейке, включая границы.</p>
 <div class="controls"><label><input id="paintMode" type="checkbox"> Рисовать глубину</label><label><input id="showDepth" type="checkbox" checked> Показывать сетку глубин</label>
 <label>Глубина кисти<input id="paintValue" type="number" min="0" max="1000" step="0.1" value="1"></label><label><input id="paintBlocked" type="checkbox"> Препятствие</label>
 <label>Столбцы<input id="depthCols" type="number" min="2" max="100" value="20"></label><label>Строки<input id="depthRows" type="number" min="2" max="100" value="14"></label><button id="resizeDepth">Новая сетка</button>
-<button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div></details>
+<button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div></details></div>
 </section>
 </section>
 <div id="pageActions"><footer id="actions"><button id="back">← Назад</button><button id="exportMarkers">Скачать рукомаркеры PDF</button><button id="exportWorkspace">Скачать проект JSON</button><button id="save">Сохранить на сервере</button><button id="next" class="primary">Далее →</button></footer></div>
