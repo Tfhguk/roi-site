@@ -91,3 +91,57 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 .route-list-item .grow{flex-basis:100%;min-width:0;font-size:.75rem;overflow-wrap:anywhere}
 .equipment-route-card .route-list-item button{font-size:.72rem;padding:5px 8px}
 .equipment-route-card>p{margin:6px;font-size:.75rem}
+/* Active setup stages fit the viewport; long lists use page controls. */
+html,body{height:100%;overflow:hidden}
+body{height:100dvh}
+main{width:100%;height:calc(100dvh - var(--chrome-height));display:flex;flex-direction:column;gap:10px;padding:12px 20px;min-height:0;overflow:hidden}
+.heading{flex:none;align-items:flex-start;gap:8px}.heading>div{min-width:0}.heading h1{font-size:1.25rem;margin:2px 0}.heading p{margin:3px 0;font-size:.82rem}#registrationStatus{font-size:.72rem}#saveState{font-size:.7rem;padding:3px 8px}
+#pageActions{margin-top:auto;flex:none}#pageActions footer{padding:8px 0 0;gap:6px}#pageActions footer button{padding:8px;font-size:.78rem}
+#polygonTools,#drawingLauncher{margin:0;padding:12px;flex:none}#polygonTools p,#drawingLauncher p{font-size:.76rem;margin:6px 0 0}
+#garage{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}.garage-heading{display:flex;justify-content:space-between;align-items:center;gap:10px}.garage-heading h2{margin:0}
+#equipmentCreate{margin:0;padding:12px}#equipmentCreate p{font-size:.76rem;margin:8px 0 0}#equipmentForm{gap:8px}#equipmentForm label{flex:1;min-width:100px}#equipmentForm input,#equipmentForm select{width:100%;min-width:0}#equipmentForm #equipmentMarkerId{width:100%}
+#equipmentList{display:flex;align-items:center;justify-content:center;flex:1;min-height:0}
+.equipment-card{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 16px;width:min(100%,660px);padding:14px;align-items:center}.equipment-card img{width:110px;height:110px;margin:0}.equipment-card h2{margin:0;overflow-wrap:anywhere}.equipment-card p{margin:4px 0}.equipment-info{min-width:0}.equipment-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}.equipment-card button{margin:0}.equipment-id-form label input{width:85px}.equipment-id-form{gap:8px}
+.pager{display:flex;align-items:center;justify-content:center;gap:14px;flex:none;font-size:.8rem}.pager button{padding:5px 12px}
+#editorWindow.drawing-layout{max-width:none}#editorWindow.drawing-layout .workspace{grid-template-columns:minmax(0,1fr);gap:0}
+#editorWindow.drawing-layout #toggleProperties{display:block;margin-left:auto}#editorWindow.drawing-layout #closeEditor{margin-left:0}
+#editorPropertiesSlot{display:contents}
+#editorWindow.drawing-layout aside.panel{display:none;position:absolute;inset:52px 10px 70px auto;width:min(400px,95%);z-index:7;background:var(--panel);box-shadow:-8px 0 25px #0008;overflow:hidden}
+#editorWindow.drawing-layout.properties-open aside.panel{display:flex;flex-direction:column;gap:6px}
+.properties-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.properties-heading h2{margin:0!important}.properties-heading button{padding:2px 8px}
+#propertiesTabs{gap:5px;flex:none}#propertiesTabs button{padding:4px 8px;font-size:.76rem}#propertiesTabs button[aria-pressed=true]{border-color:var(--accent)}
+#editorWindow.drawing-layout #vertexList{max-height:none;overflow:hidden}#editorWindow.drawing-layout #vertexList button{padding:7px;font-size:.8rem;width:100%;text-align:left;margin:3px 0}
+#editorWindow.drawing-layout #shapeList .item{padding:6px 0;font-size:.8rem}#editorWindow.drawing-layout #shapeList .item .grow{flex-basis:100%}
+#editorWindow.drawing-layout #shapePager,#editorWindow.drawing-layout #vertexPager{margin-top:auto}
+#editorBottom{flex:none;display:flex;flex-direction:column;gap:5px}#editorToolsBottom{gap:6px;align-items:center}#editorToolsBottom button{font-size:.75rem;padding:5px 8px}
+#zonePropertiesDock #shapeProperties{display:flex;align-items:end;justify-content:space-between;gap:8px}#zonePropertiesDock #shapeProperties label{margin:0;flex:1;max-width:500px;flex-direction:row;align-items:center}#zonePropertiesDock #shapeName{min-width:0;flex:1;padding:6px}#zonePropertiesDock #applyShape{width:auto;font-size:.8rem;padding:7px 10px}
+#zoneChecklist{margin-left:auto;font-size:.72rem}#editorHint{line-height:1.3;font-size:.74rem;margin:4px 0 0}
+body.editor-open #notificationCenter{overflow:hidden}
+@media(max-width:750px){
+ main{padding:8px;gap:7px}.heading h1{font-size:1.05rem}.heading p{font-size:.75rem}#saveState{display:none}#registrationStatus{display:none}
+ #polygonTools .controls{gap:6px}#polygonTools button,#drawingLauncher button{font-size:.76rem;padding:7px}#polygonTools p{font-size:.7rem}
+ #pageActions footer{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}#pageActions footer button{padding:6px 3px;font-size:.7rem}
+ .equipment-card{padding:10px;grid-template-columns:80px minmax(0,1fr);gap:8px}.equipment-card img{width:80px;height:80px}.equipment-card h2{font-size:1rem}.equipment-card button{padding:6px 8px;font-size:.75rem}.equipment-id-form input{padding:5px}.equipment-id-form label input{width:65px}
+ #equipmentForm button{font-size:.78rem;padding:7px}#equipmentForm input,#equipmentForm select{padding:7px}#equipmentCreate{padding:9px}
+ #zoneChecklist{flex-basis:100%;margin:0;font-size:.64rem}#editorToolsBottom{gap:4px}#editorToolsBottom button{font-size:.65rem;padding:4px 5px}
+ #zonePropertiesDock #shapeProperties label{font-size:.72rem}#zonePropertiesDock #applyShape{font-size:.7rem;padding:6px}#editorHint{font-size:.66rem}
+}
+@media(max-height:500px){
+ main{padding:5px 10px;gap:4px}.heading h1{font-size:.95rem}.heading p{font-size:.67rem;margin:1px 0}#registrationStatus,#saveState{display:none}
+ #pageActions footer{padding-top:4px}#pageActions footer button{padding:4px;font-size:.68rem}
+ .garage-heading h2{font-size:.9rem}.garage-heading button{padding:4px 8px;font-size:.72rem}#garage{gap:4px}.equipment-card{grid-template-columns:65px minmax(0,1fr) auto;padding:7px;gap:8px}.equipment-card img{width:65px;height:65px}.equipment-card h2{font-size:.9rem}.equipment-card p{font-size:.7rem;margin:0}.equipment-actions{grid-column:auto;flex-direction:column}.equipment-card button{font-size:.7rem;padding:4px}.equipment-id-form input{padding:3px}.equipment-id-form label{font-size:.65rem;flex-direction:row;align-items:center}.equipment-id-form label input{width:65px}
+ #equipmentCreate{padding:6px}#equipmentForm label{font-size:.7rem;gap:2px}#equipmentForm input,#equipmentForm select{padding:4px}#equipmentCreate p{margin:3px 0;font-size:.66rem}
+ #editorWindow.drawing-layout #editorHint{display:block;font-size:.62rem;line-height:1.1}#zoneChecklist{font-size:.6rem}#editorToolsBottom button{padding:3px 5px;font-size:.63rem}#zonePropertiesDock #shapeName{padding:3px}#zonePropertiesDock #applyShape{padding:4px;font-size:.68rem}
+ #editorWindow.drawing-layout aside.panel{padding:6px}#propertiesTabs button{padding:3px;font-size:.68rem}#editorWindow.drawing-layout #vertexList button{padding:3px;margin:1px 0}.properties-heading h2{font-size:.82rem}
+ #editorWindow.drawing-layout #editorToolbar{position:absolute;left:7px;top:45px;bottom:44px;width:185px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:5px}
+ #editorWindow.drawing-layout #editorToolbar label{font-size:.65rem;gap:3px;min-width:0;flex-wrap:wrap}
+ #editorWindow.drawing-layout #editorToolbar select{width:100%;max-width:100%;min-width:0;font-size:.68rem;padding:4px}
+ #editorWindow.drawing-layout #editorBottom{position:absolute;right:7px;top:45px;bottom:44px;width:170px;justify-content:center;gap:5px}
+ #editorWindow.drawing-layout .workspace{margin-left:190px;margin-right:175px}
+ #editorWindow.drawing-layout #editorToolsBottom{align-items:center;justify-content:flex-start;gap:4px}
+ #editorWindow.drawing-layout #editorToolsBottom button{font-size:.62rem;padding:4px}
+ #editorWindow.drawing-layout #zoneChecklist{font-size:.59rem;line-height:1.35;margin:0;flex-basis:100%}
+ #editorWindow.drawing-layout #zonePropertiesDock #shapeProperties{flex-wrap:wrap;gap:4px}
+ #editorWindow.drawing-layout #zonePropertiesDock #shapeProperties label{font-size:.63rem;flex-basis:100%;min-width:0}
+ #editorWindow.drawing-layout #zonePropertiesDock #applyShape{width:100%;font-size:.65rem}
+}

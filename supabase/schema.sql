@@ -232,6 +232,34 @@ begin
  insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values(eid,uid,pid,btrim(p_name),case when p_type='excavator' then 'bulldozer' else p_type end,mid) returning * into result;
  return result;
 end $$;
+create or replace function public.set_equipment_marker(p_id uuid,p_marker_id int) returns public.equipment
+language plpgsql security definer set search_path='' as $$
+declare uid uuid:=auth.uid(); item public.equipment;
+begin
+ perform 1 from public.profiles where id=uid for update;
+ select * into item from public.equipment where id=p_id and user_id=uid;
+ if item.id is null then raise exception 'Техника не найдена.'; end if;
+ if p_marker_id is null or p_marker_id not between 0 and 49 then raise exception 'Укажите целый ID от 0 до 49.'; end if;
+ perform 1 from public.polygons where id=item.polygon_id for update;
+ if item.marker_id=p_marker_id then return item; end if;
+ if exists(select 1 from public.marker_reservations where polygon_id=item.polygon_id and marker_id=p_marker_id) then
+  raise exception 'ID % уже занят в этом полигоне. Выберите другой ID.',p_marker_id;
+ end if;
+ update public.marker_reservations set marker_id=p_marker_id where polygon_id=item.polygon_id and owner_id=uid and purpose='equipment' and reference_id=p_id;
+ if not found then raise exception 'Не найдена запись ID техники. Обновите страницу.'; end if;
+ update public.equipment set marker_id=p_marker_id where id=p_id returning * into item;
+ return item;
+end $$;
+
+create or replace function public.create_equipment_with_id(p_name text,p_type text,p_marker_id int default null) returns public.equipment
+language plpgsql security definer set search_path='' as $$
+declare item public.equipment;
+begin
+ item:=public.create_equipment(p_name,p_type);
+ if p_marker_id is not null then item:=public.set_equipment_marker(item.id,p_marker_id); end if;
+ return item;
+end $$;
+
 create or replace function public.delete_equipment(p_id uuid) returns void
 language plpgsql security definer set search_path='' as $$
 declare item public.equipment;
@@ -437,6 +465,6 @@ begin
 end $$;
 
 revoke all on all functions in schema roi_private from public,anon,authenticated;
-revoke all on function public.create_polygon(text,jsonb),public.select_polygon(uuid),public.create_equipment(text,text),public.delete_equipment(uuid),public.save_workspace(jsonb,jsonb,jsonb,int),public.advance_setup() from public,anon;
-grant execute on function public.create_polygon(text,jsonb),public.select_polygon(uuid),public.create_equipment(text,text),public.delete_equipment(uuid),public.save_workspace(jsonb,jsonb,jsonb,int),public.advance_setup() to authenticated;
+revoke all on function public.create_polygon(text,jsonb),public.select_polygon(uuid),public.create_equipment(text,text),public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int),public.delete_equipment(uuid),public.save_workspace(jsonb,jsonb,jsonb,int),public.advance_setup() from public,anon;
+grant execute on function public.create_polygon(text,jsonb),public.select_polygon(uuid),public.create_equipment(text,text),public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int),public.delete_equipment(uuid),public.save_workspace(jsonb,jsonb,jsonb,int),public.advance_setup() to authenticated;
 commit;

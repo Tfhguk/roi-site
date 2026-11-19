@@ -14,30 +14,31 @@
 <button id="newPolygon">Новый полигон</button><button id="copyPolygon">Создать редактируемую копию</button>
 </div>
 <p class="muted">Сохранённые полигоны доступны другим пользователям. Их границы неизменны: для изменения создайте копию. ID выдаёт сервер: всего 50 на полигон для границы, техники и всех зон. В границе допускается до 37 вершин.</p></section>
-<section id="garage" hidden><div class="panel"><h2>Мой гараж</h2><form id="equipmentForm" class="controls">
+<section id="garage" hidden><div class="garage-heading"><h2>Мой гараж</h2><button id="openEquipmentForm">Добавить технику</button></div><div id="equipmentCreate" class="panel"><form id="equipmentForm" class="controls">
 <label>Название<input id="equipmentName" maxlength="100" required placeholder="Например, Самосвал 1"></label>
 <label>Тип<select id="equipmentType"><option value="truck">Самосвал</option><option value="bulldozer">Бульдозер</option><option value="loader">Погрузчик</option><option value="robot">Робот</option></select></label>
-<button type="submit" class="primary">Добавить технику</button></form><p class="muted">Техника видна только вашему аккаунту. Сервер назначает свободный ArUco ID в пределах выбранного полигона.</p></div><div id="equipmentList" class="cards"></div></section>
+<label>ID<input id="equipmentMarkerId" type="number" min="0" max="49" step="1" placeholder="Автоматически"></label>
+<button type="submit" class="primary">Добавить технику</button><button type="button" id="cancelEquipmentForm">Отмена</button></form><p class="muted">Укажите ID от 0 до 49 или оставьте поле пустым для автоматического выбора. Занятые номера использовать нельзя.</p></div><div id="equipmentList" class="cards"></div><div id="garagePager" class="pager"></div></section>
 <section id="drawingLauncher" class="panel" hidden><div class="controls"><button id="openEditor" class="primary">Полигон</button><span id="drawingSummary" class="muted"></span></div><p class="muted">Редактор открывается в отдельном окне. Рисунок целиком помещается на экране.</p></section>
 <div id="editorBackdrop" hidden></div>
 <section id="editorWindow" class="editor-window" role="dialog" aria-modal="false" aria-labelledby="editorTitle" hidden>
 <div class="window-heading"><h2 id="editorTitle">Полигон</h2><label id="polygonNameLabel">Название полигона<input id="polygonName" maxlength="100" required placeholder="Введите название"></label><button id="toggleProperties" aria-controls="editorProperties" aria-expanded="false">Свойства</button><button id="closeEditor" aria-label="Закрыть редактор">Закрыть ✕</button></div>
-<section id="editor"><div class="controls panel">
+<section id="editor"><div id="editorToolbar" class="controls panel">
 <label>Основа<select id="background"><option value="grid">Пустое поле</option><option value="camera">Камера</option></select></label>
 <button id="freezeCamera" hidden>Зафиксировать кадр</button><button id="resumeCamera" hidden>Продолжить камеру</button>
 <label id="zoneKindLabel" hidden>Тип зоны<select id="zoneKind"><option value="transport">Транспортная зона — где можно ездить</option><option value="warehouse">Склад</option><option value="charging">Зарядная станция</option><option value="mining">Зона добычи</option></select></label>
-<button id="newShape" hidden>Новая зона</button><button id="autoRoutes" class="primary" hidden>Построить автоматически</button><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button>
-<button id="deleteVertex" disabled>Удалить вершину</button><button id="clearShape">Очистить фигуру</button></div>
+<button id="newShape" hidden>Новая зона</button><button id="autoRoutes" class="primary" hidden>Построить автоматически</button></div>
 <div class="workspace"><div class="canvas-panel"><div class="canvas-fit" id="canvasFit"><div class="stage"><video id="camera" autoplay playsinline muted hidden></video><canvas id="frozen" width="1000" height="700" hidden></canvas>
 <svg id="map" viewBox="0 0 1000 700" role="img" tabindex="0" aria-label="Редактор: нажмите для вершины, перетащите вершину или нажмите на ребро для вставки."></svg></div></div>
-<p class="muted" id="editorHint">Нажимайте для добавления вершин. Перетаскивайте рукометки; нажмите на ребро, чтобы вставить вершину. Delete удаляет выбранную вершину. Ctrl+Z отменяет действие.</p></div>
-<aside class="panel" id="editorProperties"><h2 id="listTitle">Вершины</h2><div id="shapeList"></div><div id="vertexList"></div>
+<p class="muted" id="editorHint"></p></div>
+<div id="editorPropertiesSlot"><aside class="panel" id="editorProperties"><div class="properties-heading"><h2 id="listTitle">Вершины</h2><button id="closeProperties" aria-label="Закрыть свойства">✕</button></div><div id="propertiesTabs" class="controls"><button data-pane="shapes">Фигуры</button><button data-pane="vertices">Точки</button><button data-pane="properties">Параметры</button></div><div id="shapeList"></div><div id="shapePager" class="pager"></div><div id="vertexList"></div><div id="vertexPager" class="pager"></div>
+<div id="shapePropertiesSlot">
 <div id="shapeProperties" hidden><label>Название<input id="shapeName" maxlength="100"></label>
 <div id="routeProperties" hidden><label>Техника<select id="routeEquipment"></select></label>
 <label>Максимальная глубина<input id="maxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label>
 <label>Максимальный перепад между ячейками<input id="maxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
 <div id="routeClearances" hidden><label>Отступ от границы, ед. карты<input id="boundaryClearance" type="number" min="1" max="1000" step="1" value="5"></label><label>От центра рукомаркера, ед. карты<input id="markerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div>
-<button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside>
+<button id="applyShape" class="primary">Сохранить фигуру в проект</button></div></div><div id="validation" role="status"></div></aside></div>
 <details id="depthPanel" class="panel" hidden><summary>Карта глубины и автопостроение</summary>
 <div class="controls"><button id="generateDepth" class="primary">Сгенерировать тестовую карту и пути</button><span id="depthSource" class="muted"></span>
 <label>Техника<select id="plannerEquipment"><option value="">Вся моя техника</option></select></label>
@@ -50,7 +51,7 @@
 <button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div>
 <div class="controls"><label>Отступ от границы<input id="plannerBoundaryClearance" type="number" min="1" max="1000" step="1" value="5"></label><label>От центра рукомаркера<input id="plannerMarkerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div><p class="muted">Отступы заданы в единицах карты 1000×700 для всей линии движения. Выберите их с учётом габаритов техники и запаса. Рукомаркеры границ и зон объезжаются; при недостатке места проезд запрещён.</p>
 </details><details id="routeLegend" hidden><summary>Техника и траектории</summary><p class="muted">Наведите курсор на карточку или нажмите её, чтобы показать точки путей.</p><div id="routeLegendItems"></div></details></div>
-</section>
+<div id="editorBottom"><div id="zonePropertiesDock"></div><div id="editorToolsBottom" class="controls"><button id="undo">↶ Отменить</button><button id="finishShape">Замкнуть границу</button><button id="deleteVertex" disabled>Удалить вершину</button><button id="clearShape">Очистить фигуру</button><span id="zoneChecklist" class="muted"></span></div></div></section>
 </section>
 <div id="pageActions"><footer id="actions"><button id="back">← Назад</button><button id="exportMarkers">Скачать рукомаркеры PDF</button><button id="exportWorkspace">Скачать проект JSON</button><button id="save">Сохранить на сервере</button><button id="next" class="primary">Далее →</button></footer></div>
 </main>

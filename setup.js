@@ -3,11 +3,13 @@
   const $=id=>document.getElementById(id), G=SetupGeometry;
   const stages=["polygon","garage","zones","routes"], kinds={warehouse:"Склад",charging:"Зарядная станция",mining:"Зона добычи",transport:"Транспортная зона"};
   const titles={polygon:"Создайте или выберите полигон",garage:"Создайте технику в своём гараже",zones:"Обозначьте рабочие зоны",routes:"Создайте допустимые траектории"};
-  const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Сначала нарисуйте транспортную зону — всю область движения техники. Внутри неё разместите склад, зарядку и добычу.",routes:"Самосвал перевозит груз добыча ↔ склад. Бульдозер базируется на складе, погрузчик — в добыче. Каждой машине строится выезд на зарядку и обратно. Наведите курсор на карточку техники или нажмите её, чтобы показать точки её траекторий."};
+  const descriptions={polygon:"1. Выберите общий полигон или нажмите «Новый полигон». 2. Задайте название и границу точками. 3. Замкните границу и нажмите «Далее».",garage:"1. Добавьте технику: название, тип и свободный ID. 2. Скачайте и распечатайте её метку. 3. Добавив нужные машины, нажмите «Далее».",zones:"1. Создайте транспортную зону — всю область движения. 2. Внутри неё создайте склад, зарядку и добычу. 3. Сохраните зоны на сервере и вернитесь на главную.",routes:"1. Постройте пути по карте глубины. 2. Выберите карточку техники и при необходимости измените точки её путей. 3. Сохраните и завершите настройку."};
   let profile,polygons=[],equipment=[],ws,step="polygon",selectedId=null,draft=null,selectedVertex=-1,dirty=false,busy=false;
   let stream,drag=null,painting=false,history=[];
   let noticeTimer;
   let selectedEquipmentId=null,hoveredEquipmentId=null;
+  let reservations=[],garagePage=0,garageCreating=false,propertiesPane="shapes";
+  const pages={shapes:0,vertices:0};
   document.querySelector("main").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
   function notice(text,error=false){
@@ -42,6 +44,8 @@
   }
   $("openEditor").onclick=openEditor;$("closeEditor").onclick=()=>closeEditor();$("editorBackdrop").onclick=()=>closeEditor();
   $("toggleProperties").onclick=()=>{const open=$("editorWindow").classList.toggle("properties-open");$("toggleProperties").setAttribute("aria-expanded",String(open));};
+  $("closeProperties").onclick=()=>{$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");};
+  $("propertiesTabs").onclick=event=>{const pane=event.target.dataset.pane;if(pane){propertiesPane=pane;updatePropertiesPanes();}};
   const layoutObserver=new ResizeObserver(()=>{
     const header=document.querySelector("header");
     document.documentElement.style.setProperty("--header-height",header.getBoundingClientRect().height+"px");
@@ -80,6 +84,8 @@
     if(!permitted(target))return;
     if(dirty&&target!==step){notice("Сначала сохраните фигуру в проект и изменения на сервере.",true);return;}
     step=target;draft=null;selectedVertex=-1;history=[];
+    pages.shapes=0;pages.vertices=0;propertiesPane=step==="polygon"?"vertices":"shapes";
+    if(step==="garage")garageCreating=!ownEquipment().length;
     closeEditor(false);
     if(step==="polygon"){
       selectedId=profile.polygon_id;
@@ -106,6 +112,10 @@
     if(selectedEquipmentId&&!ownEquipment().some(vehicle=>vehicle.id===selectedEquipmentId))selectedEquipmentId=null;
     hoveredEquipmentId=null;
     $("title").textContent=titles[step];$("description").textContent=descriptions[step];
+    document.body.dataset.step=step;
+    $("editorWindow").classList.toggle("drawing-layout",step==="polygon"||step==="zones");
+    (step==="polygon"||step==="zones"?$("editorWindow"):$("editorPropertiesSlot")).append($("editorProperties"));
+    (step==="zones"?$("zonePropertiesDock"):$("shapePropertiesSlot")).append($("shapeProperties"));
     $("registrationStatus").textContent="Статус регистрации: "+AppCloud.labels[profile.registration_status];
     const shortLabels={polygon:"Полигон",garage:"Гараж",zones:"Зоны",routes:"Траектории"};
     $("steps").replaceChildren(...stages.map((s,i)=>{const el=button((i+1)+". "+shortLabels[s],()=>{if(step===s)openEditor();else activate(s);},s===step?"current":"");el.disabled=!permitted(s);el.setAttribute("aria-current",s===step?"step":"false");return el;}));
@@ -119,7 +129,7 @@
     $("clearShape").disabled=!editable();$("deleteVertex").disabled=!editable()||selectedVertex<0;
     $("depthPanel").hidden=step!=="routes";$("shapeProperties").hidden=!draft||step==="polygon";
     $("editorWindow").classList.toggle("routes-layout",step==="routes");
-    $("toggleProperties").textContent=step==="routes"?"Траектории и свойства":"Свойства";
+    $("toggleProperties").textContent=step==="routes"?"Траектории и свойства":step==="zones"?"Зоны и точки":"Точки";
     $("autoRoutes").hidden=step!=="routes";
     const plannedEquipment=$("plannerEquipment").value;
     $("plannerEquipment").replaceChildren(new Option("Вся моя техника",""),...ownEquipment().map(e=>new Option(e.name,e.id)));
@@ -140,18 +150,67 @@
     }
     renderLists();renderRouteLegend();draw();renderSaveState();fitStage();
   }
+  function pageItems(container,pager,elements,key,size){
+    const count=Math.max(1,Math.ceil(elements.length/size));
+    const page=Math.min(key==="garage"?garagePage:pages[key],count-1);
+    if(key==="garage")garagePage=page;else pages[key]=page;
+    container.replaceChildren(...elements.slice(page*size,(page+1)*size));pager.replaceChildren();
+    pager.hidden=count<=1;
+    if(count>1){
+      const change=delta=>{if(key==="garage"){garagePage=page+delta;renderGarage();}else{pages[key]=page+delta;renderLists();}};
+      const previous=button("←",()=>change(-1)),next=button("→",()=>change(1));previous.disabled=page===0;next.disabled=page===count-1;
+      previous.setAttribute("aria-label","Предыдущая страница");next.setAttribute("aria-label","Следующая страница");
+      const label=document.createElement("span");label.textContent=(page+1)+" / "+count;pager.append(previous,label,next);
+    }
+  }
+  function updatePropertiesPanes(){
+    const legacy=step==="routes";
+    $("propertiesTabs").hidden=legacy;
+    for(const [id,pane]of [["shapeList","shapes"],["shapePager","shapes"],["vertexList","vertices"],["vertexPager","vertices"]]){
+      const element=$(id);element.hidden=!legacy&&(propertiesPane!==pane||(pane==="shapes"&&step==="polygon"));
+      if(id.endsWith("Pager")&&element.childElementCount===0)element.hidden=true;
+    }
+    document.querySelector('[data-pane="shapes"]').hidden=step==="polygon";
+    document.querySelector('[data-pane="properties"]').hidden=step!=="routes";
+    for(const tab of $("propertiesTabs").querySelectorAll("button"))tab.setAttribute("aria-pressed",String(tab.dataset.pane===propertiesPane));
+    $("validation").hidden=!legacy;
+  }
+  async function refreshEquipment(){
+    [equipment,reservations]=await Promise.all([AppCloud.equipment(),AppCloud.markerReservations(profile.polygon_id)]);
+  }
+  function markerValue(input,current=null){
+    input.removeAttribute("aria-invalid");
+    if(input.value.trim()==="")return null;
+    const value=Number(input.value);
+    if(!Number.isInteger(value)||value<0||value>49){input.setAttribute("aria-invalid","true");throw Error("Укажите целый ID от 0 до 49.");}
+    if(value!==current&&reservations.some(row=>row.marker_id===value)){input.setAttribute("aria-invalid","true");throw Error("ID "+value+" уже занят в этом полигоне. Выберите другой ID.");}
+    return value;
+  }
+  $("openEquipmentForm").onclick=()=>{garageCreating=true;renderGarage();$("equipmentName").focus();};
+  $("cancelEquipmentForm").onclick=()=>{garageCreating=false;renderGarage();};
   function renderGarage(){
-    $("equipmentList").replaceChildren(...ownEquipment().map(item=>{
+    $("equipmentCreate").hidden=!garageCreating;$("equipmentList").hidden=garageCreating;$("openEquipmentForm").hidden=garageCreating;
+    const cards=ownEquipment().map(item=>{
       const card=document.createElement("article");card.className="equipment-card";
       const title=document.createElement("h2");title.textContent=item.name;
-      const image=new Image();image.alt="ArUco ID "+item.marker_id;image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(ArucoMarker.toSVG(item.marker_id,300));
+      const image=new Image();image.alt="ID "+item.marker_id;image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(ArucoMarker.toSVG(item.marker_id,300));
       const role=G.equipmentRole(item.type);
-      card.append(title,paragraph(role.label+" · ArUco ID "+item.marker_id),paragraph(role.hauls?"Добыча ↔ склад; со склада на зарядку и обратно.":"База: "+(role.baseKind==="mining"?"зона добычи":"склад")+". Местная работа; выезд только на зарядку и обратно.","muted"),image,
-        paragraph("Траекторий: "+ws.routes.filter(r=>r.equipmentId===item.id).length),
+      const idForm=document.createElement("form");idForm.className="equipment-id-form controls";idForm.noValidate=true;
+      const label=document.createElement("label");label.textContent="ID";
+      const input=document.createElement("input");input.type="number";input.min="0";input.max="49";input.step="1";input.value=item.marker_id;input.setAttribute("aria-label","ID техники "+item.name);label.append(input);
+      const apply=document.createElement("button");apply.type="submit";apply.textContent="Изменить ID";idForm.append(label,apply);
+      idForm.onsubmit=event=>{event.preventDefault();run(async()=>{
+        await refreshEquipment();const id=markerValue(input,item.marker_id);if(id===null)throw Error("Укажите ID от 0 до 49.");
+        await AppCloud.rpc("set_equipment_marker",{p_id:item.id,p_marker_id:id});await refreshEquipment();render();notice("ID сохранён. Скачайте и распечатайте новую метку для этой машины.");
+      });};
+      const info=document.createElement("div");info.className="equipment-info";info.append(title,paragraph(role.label,"muted"),idForm);
+      const actions=document.createElement("div");actions.className="equipment-actions";actions.append(
         button("Скачать SVG",()=>SetupExport.download("equipment-"+item.marker_id+".svg",ArucoMarker.toSVG(item.marker_id,800),"image/svg+xml")),
-        button("Удалить",async()=>{await AppCloud.rpc("delete_equipment",{p_id:item.id});equipment=await AppCloud.equipment();profile=await AppCloud.me();render();},"danger"));
+        button("Удалить",async()=>{await AppCloud.rpc("delete_equipment",{p_id:item.id});await refreshEquipment();profile=await AppCloud.me();render();},"danger"));
+      card.append(image,info,actions);
       return card;
-    }));
+    });
+    pageItems($("equipmentList"),$("garagePager"),cards,"garage",1);$("garagePager").hidden=garageCreating||cards.length<=1;
     if(!ownEquipment().length)$("equipmentList").append(paragraph("Гараж пока пуст."));
   }
   function renderLists(){
@@ -179,6 +238,16 @@
       $("validation").append(paragraph(missing.length?"Ещё нужны: "+missing.map(k=>kinds[k]).join(", "):"Все четыре типа зон созданы."));
       for(const error of G.zoneErrors(ws.zones,boundary()))$("validation").append(paragraph(error,"error"));
     }
+    if(step!=="routes"){
+      const available=Math.max(50,$("editorWindow").clientHeight-150);
+      pageItems(list,$("shapePager"),Array.from(list.children),"shapes",Math.max(1,Math.min(4,Math.floor(available/90))));
+      pageItems($("vertexList"),$("vertexPager"),Array.from($("vertexList").children),"vertices",Math.max(1,Math.min(6,Math.floor(available/43))));
+    }
+    updatePropertiesPanes();
+    $("zoneChecklist").hidden=step!=="zones";
+    $("zoneChecklist").textContent=Object.entries(kinds).map(([kind,name])=>(ws.zones.some(zone=>zone.kind===kind)?"✓ ":"○ ")+name).join(" · ");
+    const tips={transport:"Обведите всю площадку, где разрешено движение техники.",warehouse:"Обведите склад внутри транспортной зоны.",charging:"Обведите место зарядки внутри транспортной зоны.",mining:"Обведите зону добычи внутри транспортной зоны."};
+    $("editorHint").textContent=step==="zones"?(draft?tips[draft.kind]+" Клик — точка; перетаскивание — сдвиг; клик на ребре — новая точка. Затем «Сохранить фигуру».":"Выберите тип зоны сверху и нажмите «Новая зона». Список созданных зон — в кнопке «Зоны и точки»."):step==="polygon"?"Клик — вершина; перетаскивание — сдвиг; клик на ребре — новая вершина. После обвода нажмите «Замкнуть границу» и «Далее».":"Выберите технику, затем «Изменить». Перетаскивайте точки пути; нажимайте на ребро, чтобы добавить точку.";
   }
   function activeEquipment(){return hoveredEquipmentId||selectedEquipmentId;}
   function updateEquipmentPreview(){
@@ -361,7 +430,13 @@
     createAutoRoutes(true);
   });
   for(const id of ["shapeName","maxDepth","maxSlope","routeEquipment","boundaryClearance","markerClearance"])$(id).addEventListener("input",()=>{if(!draft)return;draft.name=$("shapeName").value;draft.maxDepth=Number($("maxDepth").value);draft.maxSlope=Number($("maxSlope").value);draft.equipmentId=$("routeEquipment").value;draft.boundaryClearance=Number($("boundaryClearance").value);draft.markerClearance=Number($("markerClearance").value);changed();draw();renderLists();});
-  $("equipmentForm").onsubmit=event=>{event.preventDefault();run(async()=>{await AppCloud.rpc("create_equipment",{p_name:$("equipmentName").value,p_type:$("equipmentType").value});$("equipmentName").value="";equipment=await AppCloud.equipment();render();notice("Техника сохранена на сервере.");});};
+  $("equipmentForm").noValidate=true;
+  $("equipmentForm").onsubmit=event=>{event.preventDefault();run(async()=>{
+    if(!$("equipmentName").value.trim())throw Error("Введите название техники.");
+    await refreshEquipment();const id=markerValue($("equipmentMarkerId"));
+    const item=await AppCloud.rpc("create_equipment_with_id",{p_name:$("equipmentName").value,p_type:$("equipmentType").value,p_marker_id:id});
+    $("equipmentName").value="";$("equipmentMarkerId").value="";await refreshEquipment();garageCreating=false;garagePage=Math.max(0,ownEquipment().findIndex(vehicle=>vehicle.id===item.id));render();notice("Техника сохранена. Скачайте её метку и разместите на машине.");
+  });};
   async function save(){
     if(step==="polygon"){
       if(selectedId)return;
@@ -380,7 +455,7 @@
   $("next").onclick=()=>run(async()=>{
     if(step==="polygon"){
       if(!selectedId)await save();
-      profile=await AppCloud.selectPolygon(selectedId);ws=await AppCloud.workspace();dirty=false;draft=null;activate("garage");return;
+      profile=await AppCloud.selectPolygon(selectedId);ws=await AppCloud.workspace();await refreshEquipment();dirty=false;draft=null;activate("garage");return;
     }
     if(step==="garage"){
       if(!ownEquipment().length)throw Error("Добавьте хотя бы одну единицу техники.");
@@ -412,6 +487,7 @@
     if(!AppCloud.configured)throw Error("Для настройки аккаунтов подключите Supabase. Параметры указываются в cloud-config.js; инструкция — supabase/README.md.");
     if(!AppCloud.session()){location.replace("login.html");return;}
     profile=await AppCloud.me();[polygons,equipment,ws]=await Promise.all([AppCloud.polygons(),AppCloud.equipment(),AppCloud.workspace()]);
+    if(profile.polygon_id)reservations=await AppCloud.markerReservations(profile.polygon_id);
     ws=ws||{zones:[],routes:[],depth:G.emptyDepth(),revision:0};
     const usedNumbers=new Set(ws.routes.filter(r=>Number.isInteger(r.number)&&r.number>0).map(r=>r.number));let number=1;
     for(const route of ws.routes)if(!route.number){while(usedNumbers.has(number))number++;route.number=number;usedNumbers.add(number);}
@@ -423,4 +499,6 @@
     if(target==="routes"&&!AppCloud.routesEnabled)notice("Раздел «Траектории» временно отключён.");
   }catch(error){notice(error.message,true);$("title").textContent="Не удалось загрузить рабочее пространство";document.querySelectorAll("main button,main input,main select").forEach(el=>el.disabled=true);}
   finally{document.querySelector("main").inert=false;}
+  let resizeFrame;
+  window.addEventListener("resize",()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{if(profile&&ws){if(step==="garage")renderGarage();renderLists();fitStage();}});});
 })();

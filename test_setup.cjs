@@ -121,7 +121,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[]};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[]};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -150,7 +150,7 @@ async function main(){
         const table=url.pathname.split('/')[3];
         if(table==='rpc'){
           const name=url.pathname.split('/')[4],params=rpcParams[name];if(!params)return json(response,404,{});
-          const result=await rpc(account.id,name,params.map(p=>typeof body[p]==='object'?JSON.stringify(body[p]):body[p]));
+          const result=await rpc(account.id,name,params.map(p=>body[p]!==null&&typeof body[p]==='object'?JSON.stringify(body[p]):body[p]));
           return json(response,200,[result]);
         }
         if(['profiles','polygons','equipment','workspaces','marker_reservations'].includes(table))return json(response,200,(await asUser(account.id,'select * from public.'+table+' order by 1')).rows);
@@ -179,6 +179,15 @@ async function main(){
       await page.mouse.wheel(0,700);assert.equal(await page.evaluate(()=>scrollY),0,'Drawing never needs page scrolling');
     }
     async function clickAt(x,y){const bounds=await page.locator('#map').boundingBox();await page.locator('#map').click({position:{x:x*bounds.width/1000,y:y*bounds.height/700}});}
+    async function checkControlsFit(selector){
+      const outside=await page.locator(selector).evaluateAll(elements=>elements.filter(element=>{
+        const r=element.getBoundingClientRect();return r.width&&r.height&&(r.top<-1||r.left<-1||r.bottom>innerHeight+1||r.right>innerWidth+1);
+      }).map(element=>element.id||element.textContent||element.tagName));
+      assert.deepEqual(outside,[],'Visible controls fit the viewport');
+      assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1&&document.documentElement.scrollWidth<=innerWidth+1));
+    }
+    await page.goto(base+'/roi-site/');await page.locator('#tabRegister').click();
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){await page.setViewportSize(viewport);await checkControlsFit('.box button,.box input,.box select');}
     await register(page,'alice@example.com','Alice');const alice=accounts.get('alice@example.com');
     assert.equal((await asUser(alice.id,'select registration_status from public.profiles')).rows[0].registration_status,'polygon');
     assert.equal(await page.locator('#editorWindow').isVisible(),false,'New polygon waits for an explicit button click');
@@ -206,12 +215,48 @@ async function main(){
     await page.locator('#polygonName').fill('  Общий полигон  ');await page.locator('#next').click();
     await page.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await page.locator('#equipmentType option[value=bulldozer]').innerText(),'Бульдозер');assert.equal(await page.locator('#equipmentType option[value=excavator]').count(),0);
-    await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button').click();await page.locator('.equipment-card').waitFor();
+    await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button[type=submit]').click();await page.locator('.equipment-card').waitFor();
+    assert(!/aruco/i.test(await page.locator('#garage').innerText()),'Garage labels use ID only');
+    const firstMachine=(await asUser(alice.id,'select * from public.equipment')).rows[0];
+    await page.locator('.equipment-id-form input').fill('49');await page.locator('.equipment-id-form button').click();
+    await page.waitForFunction(()=>document.querySelector('.equipment-id-form input').value==='49'&&!document.querySelector('main').inert);
+    assert.equal((await asUser(alice.id,'select marker_id from public.equipment')).rows[0].marker_id,49);
+    await assert.rejects(rpc(alice.id,'set_equipment_marker',[firstMachine.id,0]),/уже занят/,'Server reserves polygon vertex IDs too');
+    await assert.rejects(rpc(alice.id,'create_equipment_with_id',['Conflicting','truck',0]),/уже занят/);
+    assert.equal((await asUser(alice.id,'select count(*)::int as count from public.equipment')).rows[0].count,1,'Failed creation rolls back the entire equipment and reservation');
+    await page.locator('.equipment-id-form input').fill('0');await page.locator('.equipment-id-form button').click();
+    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('уже занят'));
+    assert.equal((await asUser(alice.id,'select marker_id from public.equipment')).rows[0].marker_id,49);
+    await page.locator('.equipment-id-form input').fill(String(firstMachine.marker_id));await page.locator('.equipment-id-form button').click();
+    await page.waitForFunction(id=>document.querySelector('.equipment-id-form input').value===String(id)&&!document.querySelector('main').inert,firstMachine.marker_id);
+    await page.locator('#openEquipmentForm').click();await page.locator('#equipmentName').fill('Pagination test');await page.locator('#equipmentMarkerId').fill('48');await page.locator('#equipmentForm button[type=submit]').click();
+    await page.waitForFunction(()=>document.querySelector('.equipment-id-form input')?.value==='48'&&!document.querySelector('main').inert);
+    assert.equal(await page.locator('.equipment-card').count(),1,'Long garage lists use pages');assert(await page.locator('#garagePager').isVisible());
+    await page.locator('#garagePager button:enabled').first().click();await page.locator('#garagePager button:enabled').first().click();
+    assert.equal(await page.locator('.equipment-id-form input').inputValue(),'48');
+    await page.locator('.equipment-card .danger').click();await page.waitForFunction(()=>document.getElementById('garagePager').hidden&&!document.querySelector('main').inert);
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
+      await page.setViewportSize(viewport);await page.waitForTimeout(80);
+      assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Garage fits without page scrolling');
+      const idBox=await page.locator('.equipment-id-form input').boundingBox();assert(idBox.y>=0&&idBox.y+idBox.height<=viewport.height);
+      await checkControlsFit('#garage button,#garage input,#garage select,#actions button');
+      await page.locator('#openEquipmentForm').click();await checkControlsFit('#garage button,#garage input,#garage select,#actions button');await page.locator('#cancelEquipmentForm').click();
+      await page.screenshot({path:path.join(output,'garage-'+viewport.width+'.png')});
+    }
     const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
     assert.equal(fs.readFileSync(path.join(output,'setup-markers.pdf')).subarray(0,5).toString(),'%PDF-');
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
     const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]];
     for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#applyShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
+    await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();await page.locator('#closeProperties').click();
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
+      await page.setViewportSize(viewport);await checkEditorViewport();await checkControlsFit('#editorWindow button,#editorWindow input,#editorWindow select');
+      const before=await page.locator('#map').boundingBox();await page.locator('#toggleProperties').click();
+      await checkControlsFit('#editorProperties button');
+      const after=await page.locator('#map').boundingBox();assert(Math.abs(before.width-after.width)<1,'Zone list does not reduce map width');
+      await page.locator('#closeProperties').click();await page.screenshot({path:path.join(output,'zones-'+viewport.width+'.png')});
+    }
+    await page.locator('#applyShape').click();
     await page.evaluate(()=>{crypto.getRandomValues=array=>{array[0]=12345;return array;};});
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('depthPanel').hidden);
     assert.equal(await page.locator('#shapeList .item').count(),2,'First visit creates working-zone routes automatically');
@@ -292,9 +337,11 @@ async function main(){
     const second=await browser.newContext({viewport:{width:1400,height:1100}}),bobPage=await second.newPage();bobPage.on('pageerror',e=>errors.push(e.message));
     await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);assert.equal(await bobPage.locator('#editorWindow').isVisible(),true,'Loading a shared polygon opens its window');assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await bobPage.locator('.equipment-card').count(),0,'Bob cannot see Alice equipment');
-    await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button').click();await bobPage.locator('.equipment-card').waitFor();
+    await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button[type=submit]').click();await bobPage.locator('.equipment-card').waitFor();
     const bob=accounts.get('bob@example.com');
     const aliceEquipment=(await asUser(alice.id,'select * from public.equipment')).rows;const bobEquipment=(await asUser(bob.id,'select * from public.equipment')).rows;
+    await assert.rejects(rpc(bob.id,'set_equipment_marker',[aliceEquipment[0].id,49]),/не найдена/,'Other users cannot change equipment IDs');
+    await assert.rejects(rpc(bob.id,'set_equipment_marker',[bobEquipment[0].id,aliceEquipment[0].marker_id]),/уже занят/,'Users sharing a polygon cannot reuse equipment IDs');
     assert.equal(aliceEquipment.length,1);assert.equal(bobEquipment.length,1);assert.notEqual(aliceEquipment[0].marker_id,bobEquipment[0].marker_id);
     assert.equal((await asUser(bob.id,'select * from public.workspaces')).rows[0].zones.length,0);
     const dozer=await rpc(alice.id,'create_equipment',['Dozer test','excavator']),loader=await rpc(alice.id,'create_equipment',['Loader test','loader']);assert.equal(dozer.type,'bulldozer');

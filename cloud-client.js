@@ -71,6 +71,7 @@
   global.AppCloud = Object.freeze({ configured, routesEnabled, session, profile, me, signIn, signUp, logout, request, rpc, labels,
     async polygons() { return request("/rest/v1/polygons?select=*&order=created_at.desc"); },
     async equipment() { return request("/rest/v1/equipment?select=*&order=created_at.asc"); },
+    async markerReservations(polygonId) { return request("/rest/v1/marker_reservations?polygon_id=eq."+encodeURIComponent(polygonId)+"&select=marker_id"); },
     async workspace() { const rows = await request("/rest/v1/workspaces?select=*"); return rows[0] || null; },
     async advance() { const value = await rpc("advance_setup", {}); return cache(value); },
     async selectPolygon(id) { const value = await rpc("select_polygon", { p_polygon: id }); return cache(value); },

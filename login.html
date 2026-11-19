@@ -55,6 +55,9 @@
   }
   .tab.active{background:rgba(56,189,248,.12); border-color:var(--accent); color:var(--accent);}
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  html,body{height:100%;overflow:hidden}body{height:100dvh;padding:12px}.box{max-height:100%}.field input,.field select{min-width:0}.row2{min-width:0}.row2>.field{min-width:0}.error:empty,.ok:empty{display:none}
+  @media(max-height:700px){.box{padding:18px}.field{margin-bottom:9px}.field label{margin-bottom:4px}.field input,.field select{padding:8px}.box p{margin-bottom:12px}.tabs{margin-bottom:10px}.hint{margin-top:9px}}
+  @media(max-height:500px){.box{max-width:560px;padding:12px}.box h1{font-size:1.1rem}.box p{font-size:.73rem;margin:0 0 7px}.field{margin-bottom:6px}.field label{font-size:.62rem;margin-bottom:2px}.field input,.field select{font-size:.8rem;padding:5px 8px}.tabs{margin-bottom:8px}.tab{padding:5px;font-size:.75rem}.btn{padding:6px;font-size:.78rem}.hint{font-size:.68rem;margin-top:6px}.error,.ok{font-size:.72rem;margin-top:5px;min-height:0}}
 </style>
 </head>
 <body>
