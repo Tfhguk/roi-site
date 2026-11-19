@@ -65,6 +65,33 @@
     for(const zone of zones)if(zone.kind!=="transport"&&(!inPolygon(zone.points,polygon)||!inAreas(zone.points,areas,true)))errors.push("Зона «"+zone.name+"» должна целиком находиться в транспортной зоне.");
     return errors;
   }
+  function segmentDistance(a,b,c,d){
+    const den=(b.x-a.x)*(d.y-c.y)-(b.y-a.y)*(d.x-c.x);
+    if(Math.abs(den)>EPS){const t=((c.x-a.x)*(d.y-c.y)-(c.y-a.y)*(d.x-c.x))/den,u=((c.x-a.x)*(b.y-a.y)-(c.y-a.y)*(b.x-a.x))/den;if(t>=0&&t<=1&&u>=0&&u<=1)return 0;}
+    return Math.min(nearSegment(a,c,d).distance,nearSegment(b,c,d).distance,nearSegment(c,a,b).distance,nearSegment(d,a,b).distance);
+  }
+  function areaEdges(areas){
+    const edges=[],contains=p=>areas.some(area=>inside(p,area));
+    for(const area of areas)area.forEach((a,i)=>{
+      const b=area[(i+1)%area.length],length=dist(a,b);if(length<EPS)return;
+      const ts=[0,1,...areas.flatMap(other=>segmentCuts(a,b,other)),...areas.flatMap(other=>other.filter(p=>nearSegment(p,a,b).distance<EPS).map(p=>nearSegment(p,a,b).t))].sort((a,b)=>a-b);
+      for(let j=1;j<ts.length;j++){if(ts[j]-ts[j-1]<EPS)continue;const t=(ts[j]+ts[j-1])/2,p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t},nx=-(b.y-a.y)/length*1e-4,ny=(b.x-a.x)/length*1e-4;
+        if(contains({x:p.x+nx,y:p.y+ny})&&contains({x:p.x-nx,y:p.y-ny}))continue;
+        edges.push([{x:a.x+(b.x-a.x)*ts[j-1],y:a.y+(b.y-a.y)*ts[j-1]},{x:a.x+(b.x-a.x)*ts[j],y:a.y+(b.y-a.y)*ts[j]}]);
+      }
+    });return edges;
+  }
+  function routingMarkers(polygon,zones){return [...polygon,...zones.flatMap(zone=>zone.points)].filter((p,i,all)=>all.findIndex(q=>dist(p,q)<EPS)===i);}
+  function safetyContext(polygon,areas,markers=[]){return {edges:[...polygon.map((p,i)=>[p,polygon[(i+1)%polygon.length]]),...areaEdges(areas||[])],markers};}
+  function clearanceErrors(points,policy,context){
+    const edgeGap=policy.boundaryClearance??0,markerGap=policy.markerClearance??0,errors=[];
+    if(![edgeGap,markerGap].every(v=>Number.isFinite(v)&&v>=0&&v<=1000))return ["Укажите корректные отступы от границ и рукомаркеров."];
+    for(let i=0;i<Math.max(1,points.length-1);i++){
+      const a=points[i],b=points[i+1]||a;
+      if(edgeGap>0&&context.edges.some(([c,d])=>segmentDistance(a,b,c,d)<edgeGap-EPS))errors.push("Недостаточный отступ от границы транспортной зоны или полигона.");
+      if(markerGap>0&&context.markers.some(p=>nearSegment(p,a,b).distance<markerGap-EPS))errors.push("Траектория проходит слишком близко к рукомаркеру.");
+    }return [...new Set(errors)];
+  }
   function validateDepth(map) {
     if(!map||map.version!==1||map.width!==W||map.height!==H||!Number.isInteger(map.cols)||!Number.isInteger(map.rows)||
       map.cols<2||map.cols>100||map.rows<2||map.rows>100||!Array.isArray(map.cells)||map.cells.length!==map.cols*map.rows||
@@ -72,11 +99,12 @@
     return {version:1,width:W,height:H,cols:map.cols,rows:map.rows,unit:"условные единицы",cells:map.cells.slice(),
       ...(map.source==="synthetic"&&Number.isInteger(map.seed)?{source:"synthetic",seed:map.seed>>>0}:{})};
   }
-  function routeErrors(route,polygon,depth,transportAreas) {
+  function routeErrors(route,polygon,depth,transportAreas,safety) {
     const errors=[];
     if(!validPoints(route.points,false)) return ["Нужно не менее двух разных точек без самопересечений."];
     if(!inPolygon(route.points,polygon,false)) errors.push("Траектория выходит за границу полигона.");
     if(transportAreas&&!inAreas(route.points,transportAreas))errors.push("Траектория выходит из транспортной зоны — области разрешённого движения.");
+    errors.push(...clearanceErrors(route.points,route,safety||safetyContext(polygon,transportAreas)));
     if(!Number.isFinite(route.maxDepth)||route.maxDepth<0||!Number.isFinite(route.maxSlope)||route.maxSlope<0) return [...errors,"Задайте допустимую глубину и перепад не меньше нуля."];
     for(let i=1;i<route.points.length;i++) {
       const a=route.points[i-1],b=route.points[i],ts=segmentCuts(a,b,polygon,depth);
@@ -126,7 +154,7 @@
     return candidates.find(p=>inside(p,points))||{x:points[0].x,y:points[0].y};
   }
   function generateDepth(polygon,zones=[],seed=1,cols=40,rows=28,options={}) {
-    const limits=plannerLimits({...options,...(zones.length?{transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}:{})});
+    const limits=plannerLimits({...(zones.length?{boundaryClearance:15,markerClearance:40,markers:routingMarkers(polygon,zones)}:{}),...options,...(zones.length?{transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}:{})});
     if(!validPoints(polygon)||zones.some(z=>!validPoints(z.points)||!inPolygon(z.points,polygon)))throw Error("Проверьте границы полигона и расположение зон.");
     if(zones.length&&zoneErrors(zones,polygon).length)throw Error(zoneErrors(zones,polygon).join("\n"));
     let state=seed>>>0;
@@ -149,14 +177,19 @@
     }
     // Reserve continuous corridors before placing obstacles. Polygon vertices
     // keep these corridors connected even when a neck is thinner than a cell.
-    const reserved=new Set(),centres=zones.filter(z=>z.kind!=="transport").map(zoneCentre),flat={...map,cells:map.cells.slice()};
+    const reserved=new Set(),working=zones.filter(z=>z.kind!=="transport"),flat={...map,cells:map.cells.slice()};let centres=working.map(zoneCentre);
     function reserve(p){for(const i of cellsAt(p,map)){const x=i%cols,y=Math.floor(i/cols);for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=x+dx,ny=y+dy;if(nx>=0&&nx<cols&&ny>=0&&ny<rows)reserved.add(ny*cols+nx);}}}
-    centres.forEach(reserve);
     const flatGraph=makeGraph(polygon,flat,limits);
+    centres=centres.map((p,i)=>{
+      if(!clearanceErrors([p],limits,flatGraph.safety).length)return p;
+      const candidates=flatGraph.nodes.filter((q,j)=>flatGraph.allowed[j]&&inside(q,working[i].points)).sort((a,b)=>dist(a,p)-dist(b,p));
+      if(!candidates.length)throw Error("Нет безопасного подъезда к зоне «"+working[i].name+"»: проверьте отступы от её рукомаркеров и границ.");
+      return candidates[0];
+    });centres.forEach(reserve);
     for(const centre of centres.slice(1)){
       if(dist(centres[0],centre)<=.1)continue;
       const path=searchPath(centres[0],centre,polygon,flat,limits,flatGraph);
-      if(!path)throw Error("Не удалось связать зоны внутри полигона. Проверьте его геометрию.");
+      if(!path)throw Error("Не удалось обеспечить проезд ко всем зонам с заданными отступами от границы и рукомаркеров. Расширьте узкие участки транспортной зоны или проверьте размеры отступов.");
       for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i],ts=segmentCuts(a,b,polygon,map);
         for(const t of [0,...ts.slice(1).flatMap((t,j)=>[(ts[j]+t)/2,t])])reserve({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
       }
@@ -167,22 +200,27 @@
     return {...map,source:"synthetic",seed:seed>>>0};
   }
   function plannerLimits(options={}) {
-    const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2};
+    const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2,boundaryClearance:options.boundaryClearance??0,markerClearance:options.markerClearance??0};
     if(!Object.values(limits).every(v=>Number.isFinite(v)&&v>=0&&v<=1000))throw Error("Глубина и перепад для автопостроения должны быть от 0 до 1000.");
-    return {...limits,...(options.transportAreas?{transportAreas:options.transportAreas}:{})};
+    return {...limits,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[]};
   }
   function makeGraph(polygon,depth,limits) {
+    limits={...limits,safety:safetyContext(polygon,limits.transportAreas,limits.markers)};
     const nodes=depth.cells.map((value,i)=>({x:(i%depth.cols+.5)*W/depth.cols,y:(Math.floor(i/depth.cols)+.5)*H/depth.rows}));
-    const within=p=>inside(p,polygon)&&(!limits.transportAreas||inAreas([p],limits.transportAreas));
+    const within=p=>inside(p,polygon)&&(!limits.transportAreas||inAreas([p],limits.transportAreas))&&!clearanceErrors([p],limits,limits.safety).length;
     const allowed=nodes.map((p,i)=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth&&within(p));
     const gridCount=nodes.length,edges=new Map(),links=new Map();
-    for(const p of [...polygon,...(limits.transportAreas||[]).flat()]){if(nodes.slice(gridCount).some(q=>dist(p,q)<=.1))continue;nodes.push({x:p.x,y:p.y});allowed.push(within(p)&&cellsAt(p,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth));}
+    const vertices=[...polygon,...(limits.transportAreas||[]).flat()],extra=[...vertices];
+    for(const p of vertices)if(limits.boundaryClearance>0)for(let k=0;k<8;k++)extra.push({x:p.x+Math.cos(k*Math.PI/4)*limits.boundaryClearance*1.5,y:p.y+Math.sin(k*Math.PI/4)*limits.boundaryClearance*1.5});
+    for(const p of limits.markers)if(limits.markerClearance>0)for(let k=0;k<8;k++)extra.push({x:p.x+Math.cos(k*Math.PI/4)*limits.markerClearance*1.1,y:p.y+Math.sin(k*Math.PI/4)*limits.markerClearance*1.1});
+    for(const p of extra){if(!within(p)||nodes.slice(gridCount).some(q=>dist(p,q)<=.1))continue;nodes.push({x:p.x,y:p.y});allowed.push(cellsAt(p,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth));}
     const metric=(a,b)=>segmentMetrics(a,b,polygon,depth,limits);
     function link(i,j){const m=metric(nodes[i],nodes[j]);if(!m)return;for(const [a,b]of [[i,j],[j,i]]){if(!links.has(a))links.set(a,[]);links.get(a).push({i:b,...m});}}
     for(let i=gridCount;i<nodes.length;i++)if(allowed[i]){
       const nearest=nodes.slice(0,gridCount).map((p,j)=>({j,d:dist(nodes[i],p)})).filter(p=>allowed[p.j]).sort((a,b)=>a.d-b.d).slice(0,24);
       for(const {j}of nearest)link(i,j);
-      for(let j=gridCount;j<i;j++)if(allowed[j])link(i,j);
+      const visibleNodes=nodes.map((p,j)=>({j,d:dist(nodes[i],p)})).filter(p=>p.j>=gridCount&&p.j!==i&&allowed[p.j]).sort((a,b)=>a.d-b.d).slice(0,16);
+      for(const {j}of visibleNodes)if(j<i)link(i,j);
     }
     function neighbours(i){
       if(edges.has(i))return edges.get(i);
@@ -191,16 +229,16 @@
       for(const [dx,dy]of [[-1,0],[1,0],[0,-1],[0,1]]){
         const nx=x+dx,ny=y+dy,j=ny*depth.cols+nx;
         if(nx<0||nx>=depth.cols||ny<0||ny>=depth.rows||!allowed[j])continue;
-        if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas)))continue;
+        if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
         const delta=Math.abs(depth.cells[i]-depth.cells[j]);result.push({i:j,peak:delta,variation:delta,length:dist(nodes[i],nodes[j])});
       }
       edges.set(i,result);return result;
     }
-    return {nodes,allowed,neighbours,metric,gridCount};
+    return {nodes,allowed,neighbours,metric,gridCount,safety:limits.safety};
   }
   function segmentMetrics(a,b,polygon,depth,limits){
     if(dist(a,b)<=.1)return {peak:0,variation:0,length:0};
-    if(routeErrors({points:[a,b],...limits},polygon,depth,limits.transportAreas).length)return null;
+    if(routeErrors({points:[a,b],...limits},polygon,depth,limits.transportAreas,limits.safety).length)return null;
     const ts=segmentCuts(a,b,polygon,depth);let previous,previousValue,peak=0,variation=0;
     for(const t of [0,...ts.slice(1).flatMap((t,j)=>[(ts[j]+t)/2,t])]){
       const values=cellsAt({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t},depth).map(i=>depth.cells[i]);
@@ -213,6 +251,7 @@
   }
   function pathMetrics(points,polygon,depth,options={}){
     const limits=plannerLimits(options),result={peak:0,variation:0,length:0};
+    limits.safety=safetyContext(polygon,limits.transportAreas,limits.markers);
     for(let i=1;i<points.length;i++){const m=segmentMetrics(points[i-1],points[i],polygon,depth,limits);if(!m)return null;result.peak=Math.max(result.peak,m.peak);result.variation+=m.variation;result.length+=m.length;}
     return result;
   }
@@ -260,7 +299,7 @@
       while(next>index+1){const m=graph.metric(corners[index],corners[next]);if(m&&m.peak<=ceiling+EPS&&m.variation<=prefix[next]-prefix[index]+EPS)break;next--;}
       simplified.push(corners[next]);index=next;
     }
-    return !routeErrors({points:simplified,...limits},polygon,depth,limits.transportAreas).length?simplified.map(p=>({...p})):null;
+    return !routeErrors({points:simplified,...limits},polygon,depth,limits.transportAreas,graph.safety).length?simplified.map(p=>({...p})):null;
   }
   function findPath(start,end,polygon,depth,options={}) {
     validateDepth(depth);const limits=plannerLimits(options);
@@ -268,7 +307,7 @@
   }
   function planRoutes(polygon,zones,equipment,depth,options={}) {
     const errors=zoneErrors(zones,polygon);if(errors.length)throw Error(errors.join("\n"));
-    validateDepth(depth);const limits=plannerLimits({...options,transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}),graph=makeGraph(polygon,depth,limits);
+    validateDepth(depth);const limits=plannerLimits({boundaryClearance:15,markerClearance:40,...options,markers:routingMarkers(polygon,zones),transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}),graph=makeGraph(polygon,depth,limits);
     const pairs=[];
     for(const from of zones)for(const to of zones)if(from.kind!=="transport"&&to.kind!=="transport"&&from.id!==to.id&&(
       options.allPairs?zones.indexOf(from)<zones.indexOf(to):from.kind==="mining"&&to.kind==="warehouse"||from.kind==="warehouse"&&to.kind==="charging"))pairs.push([from,to]);
@@ -277,7 +316,7 @@
     if(pairs.length*equipment.length>30)throw Error("Получается больше 30 траекторий. Выберите одну единицу техники для автопостроения.");
     function anchor(zone){
       const centre=zoneCentre(zone);
-      if(cellsAt(centre,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth)&&graph.nodes.some((p,i)=>graph.allowed[i]&&graph.metric(centre,p)))return centre;
+      if(!clearanceErrors([centre],limits,graph.safety).length&&cellsAt(centre,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth)&&graph.nodes.some((p,i)=>graph.allowed[i]&&graph.metric(centre,p)))return centre;
       const candidates=graph.nodes.filter((p,i)=>graph.allowed[i]&&inside(p,zone.points)).sort((a,b)=>dist(a,centre)-dist(b,centre));
       if(candidates.length)return candidates[0];
       return [centre,...zone.points].find(p=>inside(p,zone.points)&&graph.nodes.some((q,i)=>graph.allowed[i]&&graph.metric(p,q)));
@@ -290,9 +329,9 @@
       if(a&&b&&dist(a,b)<=.1)b=to.points.map(p=>{const t=Math.min(.5,1/Math.max(1,dist(p,b)));return {x:b.x+(p.x-b.x)*t,y:b.y+(p.y-b.y)*t};}).find(p=>dist(a,p)>.1&&inside(p,to.points)&&graph.metric(a,p));
       const path=a&&b?searchPath(a,b,polygon,depth,limits,graph):null;
       if(!path){unreachable.push(from.name+" → "+to.name);continue;}
-      for(const vehicle of equipment)routes.push({name:Array.from(vehicle.name+": "+from.name+" → "+to.name).slice(0,100).join(""),equipmentId:vehicle.id,fromZoneId:from.id,toZoneId:to.id,points:path.map(p=>({...p})),maxDepth:limits.maxDepth,maxSlope:limits.maxSlope});
+      for(const vehicle of equipment)routes.push({name:Array.from(vehicle.name+": "+from.name+" → "+to.name).slice(0,100).join(""),equipmentId:vehicle.id,fromZoneId:from.id,toZoneId:to.id,points:path.map(p=>({...p})),maxDepth:limits.maxDepth,maxSlope:limits.maxSlope,boundaryClearance:limits.boundaryClearance,markerClearance:limits.markerClearance});
     }
     return {routes,unreachable};
   }
-  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics});
+  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors});
 })(globalThis);

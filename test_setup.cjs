@@ -57,7 +57,7 @@ function geometryTests(){
   assert(G.validPoints(narrow));
   const smallZone=(id,kind,x,y)=>({id,name:id,kind,points:points([[x-10,y-10],[x+10,y-10],[x+10,y+10],[x-10,y+10]])});
   const narrowZones=[smallZone('store','warehouse',250,350),smallZone('mine','mining',750,500),smallZone('charge','charging',250,150),{id:'drivable',name:'Driving area',kind:'transport',points:narrow}];
-  for(const limits of [{maxDepth:5,maxSlope:2},{maxDepth:1,maxSlope:.01},{maxDepth:0,maxSlope:0}]){
+  for(const limits of [{maxDepth:5,maxSlope:2,boundaryClearance:0,markerClearance:0},{maxDepth:1,maxSlope:.01,boundaryClearance:0,markerClearance:0},{maxDepth:0,maxSlope:0,boundaryClearance:0,markerClearance:0}]){
     const map=G.generateDepth(narrow,narrowZones,98765,20,14,limits),planned=G.planRoutes(narrow,narrowZones,[vehicle],map,limits);
     assert.equal(planned.routes.length,2,'All narrow-neck connections remain reachable '+JSON.stringify(limits));assert.deepEqual(planned.unreachable,[]);
     for(const route of planned.routes)assert.deepEqual(G.routeErrors(route,narrow,map),[]);
@@ -73,6 +73,15 @@ function geometryTests(){
   const drivingUnion=[points([[100,100],[500,100],[500,500],[100,500]]),points([[400,400],[900,400],[900,600],[400,600]])];
   const unionPath=G.findPath({x:200,y:200},{x:800,y:550},boundary,G.emptyDepth(),{transportAreas:drivingUnion});
   assert(!G.inAreas(points([[200,200],[800,550]]),drivingUnion));assert(unionPath&&G.inAreas(unionPath,drivingUnion),'Can move across overlapping transport areas without cutting excluded space');
+  const safety=G.safetyContext(boundary,[boundary],[{x:500,y:350}]),policy={boundaryClearance:15,markerClearance:40};
+  assert(G.clearanceErrors(points([[100,350],[900,350]]),policy,safety).some(e=>e.includes('рукомаркер')),'Check the segment interior, not just endpoints');
+  const around=G.findPath({x:125,y:325},{x:875,y:325},boundary,G.emptyDepth(),{...policy,markers:[{x:500,y:350}]});
+  assert(around&&around.length>2);assert.deepEqual(G.clearanceErrors(around,policy,safety),[]);
+  assert(G.clearanceErrors(points([[100,10],[900,10]]),policy,safety).some(e=>e.includes('границы')));
+  const unionSafety=G.safetyContext(boundary,drivingUnion,[]);
+  assert.deepEqual(G.clearanceErrors(points([[450,350],[450,550]]),{boundaryClearance:20,markerClearance:0},unionSafety),[],'Overlapping-area seams are not driving boundaries');
+  assert.equal(G.pathMetrics(points([[100,350],[900,350]]),boundary,G.emptyDepth(),{...policy,markers:[{x:500,y:350}]}),null);
+  assert.throws(()=>G.generateDepth(narrow,narrowZones,98765),/отступ|безопасного/,'Never shrink clearances to force a vehicle into a narrow corridor');
   console.log('PASS planner: 35 reproducible seeds connect every zone; narrow bent corridors, zero depth/slope, overlapping centres; flatter detours preferred to legal straight lines without destructive simplification; impassable imported maps remain blocked.');
   console.log('PASS geometry: concave boundary, thin and edge-adjacent obstacles, depth, cell jumps, invalid maps.');
 }
@@ -187,12 +196,17 @@ async function main(){
     assert(!/препятствие|Превышен|выходит/.test(await page.locator('#validation').innerText()));
     const autoDownload=page.waitForEvent('download');await page.locator('#exportWorkspace').click();await(await autoDownload).saveAs(path.join(output,'auto-routes.json'));
     const autoProject=JSON.parse(fs.readFileSync(path.join(output,'auto-routes.json'),'utf8'));assert.equal(autoProject.depth.seed,12345);assert.equal(autoProject.routes.length,2);
+    assert.equal(await page.locator('.route-label').count(),2);assert.match(await page.locator('#routeLegendItems').innerText(),/№1, №2/);
+    assert.deepEqual(autoProject.routes.map(r=>r.number),[1,2]);
+    const autoSafety=G.safetyContext(autoProject.polygon.geometry.points,autoProject.zones.filter(z=>z.kind==='transport').map(z=>z.points),G.routingMarkers(autoProject.polygon.geometry.points,autoProject.zones));
+    for(const route of autoProject.routes)assert.deepEqual(G.clearanceErrors(route.points,route,autoSafety),[],'Generated routes keep the requested gaps');
     for(const route of autoProject.routes)assert.deepEqual(G.routeErrors(route,autoProject.polygon.geometry.points,autoProject.depth),[]);
     await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();
     const firstPath=autoProject.routes[0].points;await clickAt((firstPath[0].x+firstPath[1].x)/2,(firstPath[0].y+firstPath[1].y)/2);
     assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
     await page.locator('#applyShape').click();await page.locator('#save').click();
     const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,2);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
+    assert.deepEqual(savedAuto.routes.map(r=>r.number),[1,2]);assert(savedAuto.routes.every(r=>r.boundaryClearance===15&&r.markerClearance===40));
     assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Server independently accepts generated and edited paths');
     await page.reload();await page.locator('#autoRoutes').waitFor();assert.equal(await page.locator('#shapeList .item').count(),2,'Saved automatic routes survive reload');
     const mapBefore=await page.locator('#map').boundingBox();
@@ -208,8 +222,8 @@ async function main(){
     fs.writeFileSync(path.join(output,'flat-depth.json'),JSON.stringify(G.emptyDepth()));await page.locator('#importDepth').setInputFiles(path.join(output,'flat-depth.json'));
     await page.waitForFunction(()=>document.getElementById('depthCols').value==='20');
     await page.locator('#depthPanel summary').click();
-    await page.locator('#newShape').click();await clickAt(150,550);await clickAt(850,550);await page.locator('#toggleProperties').click();await page.locator('#applyShape').click();
-    await page.locator('#depthPanel summary').click();await page.locator('#paintMode').check();await page.locator('#paintBlocked').check();await clickAt(525,575);
+    await page.locator('#newShape').click();await clickAt(180,530);await clickAt(820,530);await page.locator('#toggleProperties').click();await page.locator('#applyShape').click();
+    await page.locator('#depthPanel summary').click();await page.locator('#paintMode').check();await page.locator('#paintBlocked').check();await clickAt(525,525);
     assert.match(await page.locator('#validation').innerText(),/препятствие/);
     await page.locator('#next').click();await page.waitForFunction(()=>document.getElementById('message').textContent.includes('Исправьте'));
     const depthPromise=page.waitForEvent('download');await page.locator('#exportDepth').click();await(await depthPromise).saveAs(path.join(output,'pseudo-depth.json'));
@@ -219,6 +233,12 @@ async function main(){
     await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
     const aliceWS=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(aliceWS.zones.length,4);assert.equal(aliceWS.routes.length,1);
+    for(const coordinates of [[[180,150],[820,150]],[[260,300],[340,300]]]){
+      const unsafe=structuredClone(aliceWS.routes);unsafe[0].points=points(coordinates);
+      const unsafeDraft=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(unsafe),JSON.stringify(aliceWS.depth),aliceWS.revision]);
+      await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Server enforces gaps from both road boundaries and marker centres');
+      const restored=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),unsafeDraft.revision]);aliceWS.revision=restored.revision;
+    }await rpc(alice.id,'advance_setup',[]);
     const outsideDriving=structuredClone(aliceWS.routes);outsideDriving[0].points=points([[150,550],[120,550],[120,150],[850,150],[850,550]]);
     const invalidDraft=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(outsideDriving),JSON.stringify(aliceWS.depth),aliceWS.revision]);
     await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Server rejects leaving the driving area even inside the outer polygon');
@@ -229,7 +249,7 @@ async function main(){
     const finalRestored=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),badZoneDraft.revision]);
     aliceWS.revision=finalRestored.revision;await rpc(alice.id,'advance_setup',[]);
     await assert.rejects(rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),aliceWS.revision-1]),/другой вкладке/);
-    const blocked=structuredClone(aliceWS.depth);blocked.cells[11*20+10]=null;
+    const blocked=structuredClone(aliceWS.depth);blocked.cells[10*20+10]=null;
     await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(aliceWS.routes),JSON.stringify(blocked),aliceWS.revision]);
     await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Server rejects blocked route, independently of UI');
     const latest=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
