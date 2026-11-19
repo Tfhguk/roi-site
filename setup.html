@@ -36,7 +36,7 @@
 <div id="routeProperties" hidden><label>Техника<select id="routeEquipment"></select></label>
 <label>Максимальная глубина<input id="maxDepth" type="number" min="0" max="1000" step="0.1" value="5"></label>
 <label>Максимальный перепад между ячейками<input id="maxSlope" type="number" min="0" max="1000" step="0.1" value="2"></label></div>
-<div id="routeClearances" hidden><label>Отступ от границы, ед. карты<input id="boundaryClearance" type="number" min="1" max="1000" step="1" value="15"></label><label>От центра рукомаркера, ед. карты<input id="markerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div>
+<div id="routeClearances" hidden><label>Отступ от границы, ед. карты<input id="boundaryClearance" type="number" min="1" max="1000" step="1" value="5"></label><label>От центра рукомаркера, ед. карты<input id="markerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div>
 <button id="applyShape" class="primary">Сохранить фигуру в проект</button></div><div id="validation" role="status"></div></aside>
 <details id="depthPanel" class="panel" hidden><summary>Карта глубины и автопостроение</summary>
 <div class="controls"><button id="generateDepth" class="primary">Сгенерировать тестовую карту и пути</button><span id="depthSource" class="muted"></span>
@@ -48,7 +48,7 @@
 <label>Глубина кисти<input id="paintValue" type="number" min="0" max="1000" step="0.1" value="1"></label><label><input id="paintBlocked" type="checkbox"> Препятствие</label>
 <label>Столбцы<input id="depthCols" type="number" min="2" max="100" value="20"></label><label>Строки<input id="depthRows" type="number" min="2" max="100" value="14"></label><button id="resizeDepth">Новая сетка</button>
 <button id="exportDepth">Скачать JSON глубин</button><label class="file-button">Загрузить JSON<input id="importDepth" type="file" accept=".json,application/json"></label></div>
-<div class="controls"><label>Отступ от границы<input id="plannerBoundaryClearance" type="number" min="1" max="1000" step="1" value="15"></label><label>От центра рукомаркера<input id="plannerMarkerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div><p class="muted">Отступы заданы в единицах карты 1000×700 для всей линии движения. Выберите их с учётом габаритов техники и запаса. Рукомаркеры границ и зон объезжаются; при недостатке места проезд запрещён.</p>
+<div class="controls"><label>Отступ от границы<input id="plannerBoundaryClearance" type="number" min="1" max="1000" step="1" value="5"></label><label>От центра рукомаркера<input id="plannerMarkerClearance" type="number" min="24" max="1000" step="1" value="40"></label></div><p class="muted">Отступы заданы в единицах карты 1000×700 для всей линии движения. Выберите их с учётом габаритов техники и запаса. Рукомаркеры границ и зон объезжаются; при недостатке места проезд запрещён.</p>
 </details><details id="routeLegend" hidden><summary>Техника и номера траекторий</summary><div id="routeLegendItems"></div></details></div>
 </section>
 </section>

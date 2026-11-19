@@ -154,7 +154,7 @@
     return candidates.find(p=>inside(p,points))||{x:points[0].x,y:points[0].y};
   }
   function generateDepth(polygon,zones=[],seed=1,cols=40,rows=28,options={}) {
-    const limits=plannerLimits({...(zones.length?{boundaryClearance:15,markerClearance:40,markers:routingMarkers(polygon,zones)}:{}),...options,...(zones.length?{transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}:{})});
+    const limits=plannerLimits({...(zones.length?{boundaryClearance:5,markerClearance:40,markers:routingMarkers(polygon,zones)}:{}),...options,...(zones.length?{transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}:{})});
     if(!validPoints(polygon)||zones.some(z=>!validPoints(z.points)||!inPolygon(z.points,polygon)))throw Error("Проверьте границы полигона и расположение зон.");
     if(zones.length&&zoneErrors(zones,polygon).length)throw Error(zoneErrors(zones,polygon).join("\n"));
     let state=seed>>>0;
@@ -318,7 +318,7 @@
   }
   function planRoutes(polygon,zones,equipment,depth,options={}) {
     const errors=zoneErrors(zones,polygon);if(errors.length)throw Error(errors.join("\n"));
-    validateDepth(depth);const limits=plannerLimits({boundaryClearance:15,markerClearance:40,...options,markers:routingMarkers(polygon,zones),transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}),graph=makeGraph(polygon,depth,limits);
+    validateDepth(depth);const limits=plannerLimits({boundaryClearance:5,markerClearance:40,...options,markers:routingMarkers(polygon,zones),transportAreas:zones.filter(z=>z.kind==="transport").map(z=>z.points)}),graph=makeGraph(polygon,depth,limits);
     if(!equipment.length)throw Error("Добавьте технику в гараж.");
     const jobs=[];
     for(const vehicle of equipment){const role=equipmentRole(vehicle.type);

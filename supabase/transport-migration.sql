@@ -97,7 +97,7 @@ end $$;
 
 create or replace function roi_private.route_clearance_ok(route jsonb,boundary jsonb,zones jsonb) returns boolean
 language plpgsql immutable set search_path='' as $$
-declare edge_gap float8:=coalesce((route->>'boundaryClearance')::float8,15); marker_gap float8:=coalesce((route->>'markerClearance')::float8,40);
+declare edge_gap float8:=coalesce((route->>'boundaryClearance')::float8,5); marker_gap float8:=coalesce((route->>'markerClearance')::float8,40);
  edges jsonb:=roi_private.transport_boundary(zones); a jsonb; b jsonb; edge jsonb; marker jsonb; i int;
 begin
  if not(edge_gap between 1 and 1000 and marker_gap between 24 and 1000) then return false; end if;

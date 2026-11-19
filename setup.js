@@ -68,7 +68,7 @@
   function drivingAreas(){return (ws?.zones||[]).filter(z=>z.kind==="transport").map(z=>z.points);}
   function routeNumber(route,index=ws.routes.indexOf(route)){return route.number||index+1;}
   function nextRouteNumber(routes=ws.routes){return Math.max(0,...routes.map((r,i)=>routeNumber(r,i)))+1;}
-  function checkRoute(route){return [...G.routeErrors({boundaryClearance:15,markerClearance:40,...route},boundary(),ws.depth,drivingAreas(),G.safetyContext(boundary(),drivingAreas(),G.routingMarkers(boundary(),ws.zones))),...G.vehicleRouteErrors(route,ws.zones,ownEquipment().find(e=>e.id===route.equipmentId))];}
+  function checkRoute(route){return [...G.routeErrors({boundaryClearance:5,markerClearance:40,...route},boundary(),ws.depth,drivingAreas(),G.safetyContext(boundary(),drivingAreas(),G.routingMarkers(boundary(),ws.zones))),...G.vehicleRouteErrors(route,ws.zones,ownEquipment().find(e=>e.id===route.equipmentId))];}
   const routeColors=["#4ade80","#38bdf8","#fbbf24","#c4b5fd","#fb923c","#f472b6"];
   function routeColor(route){return routeColors[Math.max(0,ownEquipment().findIndex(e=>e.id===route.equipmentId))%routeColors.length];}
   function ownEquipment(){return equipment.filter(item=>item.polygon_id===profile.polygon_id);}
@@ -135,7 +135,7 @@
     if(draft&&step!=="polygon"){
       $("shapeName").value=draft.name;$("routeEquipment").replaceChildren(...ownEquipment().map(e=>new Option(e.name,e.id)));
       $("routeEquipment").value=draft.equipmentId||"";$("maxDepth").value=draft.maxDepth??5;$("maxSlope").value=draft.maxSlope??2;
-      $("boundaryClearance").value=draft.boundaryClearance??15;$("markerClearance").value=draft.markerClearance??40;
+      $("boundaryClearance").value=draft.boundaryClearance??5;$("markerClearance").value=draft.markerClearance??40;
     }
     renderLists();renderRouteLegend();draw();renderSaveState();fitStage();
   }

@@ -81,6 +81,12 @@ function geometryTests(){
   const unionSafety=G.safetyContext(boundary,drivingUnion,[]);
   assert.deepEqual(G.clearanceErrors(points([[450,350],[450,550]]),{boundaryClearance:20,markerClearance:0},unionSafety),[],'Overlapping-area seams are not driving boundaries');
   assert.equal(G.pathMetrics(points([[100,350],[900,350]]),boundary,G.emptyDepth(),{...policy,markers:[{x:500,y:350}]}),null);
+  const corridor=[points([[100,300],[900,300],[900,320],[100,320]])];
+  const corridorStart={x:200,y:310},corridorEnd={x:800,y:310};
+  assert.equal(G.findPath(corridorStart,corridorEnd,boundary,G.emptyDepth(),{transportAreas:corridor,boundaryClearance:15}),null,'Old gap blocks a 20-unit-wide corridor');
+  const corridorPath=G.findPath(corridorStart,corridorEnd,boundary,G.emptyDepth(),{transportAreas:corridor,boundaryClearance:5});
+  assert(corridorPath,'Reduced gap opens the narrow corridor');
+  assert.deepEqual(G.clearanceErrors(corridorPath,{boundaryClearance:5},G.safetyContext(boundary,corridor,[])),[]);
   const fleet=[vehicle,{id:'dozer',name:'Dozer',type:'bulldozer'},{id:'loader',name:'Loader',type:'loader'},{id:'legacy',name:'Legacy',type:'excavator'}];
   const fleetRoutes=G.planRoutes(terrainBoundary,zones,fleet,G.emptyDepth()).routes;assert.equal(fleetRoutes.length,5);
   const byId=new Map(zones.map(z=>[z.id,z]));
@@ -225,7 +231,7 @@ async function main(){
     assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
     await page.locator('#applyShape').click();await page.locator('#save').click();
     const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,2);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
-    assert.deepEqual(savedAuto.routes.map(r=>r.number),[1,2]);assert(savedAuto.routes.every(r=>r.boundaryClearance===15&&r.markerClearance===40));
+    assert.deepEqual(savedAuto.routes.map(r=>r.number),[1,2]);assert(savedAuto.routes.every(r=>r.boundaryClearance===5&&r.markerClearance===40));
     assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Server independently accepts generated and edited paths');
     await page.reload();await page.locator('#autoRoutes').waitFor();assert.equal(await page.locator('#shapeList .item').count(),2,'Saved automatic routes survive reload');
     const mapBefore=await page.locator('#map').boundingBox();
@@ -252,7 +258,11 @@ async function main(){
     await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
     const aliceWS=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(aliceWS.zones.length,4);assert.equal(aliceWS.routes.length,1);
-    for(const coordinates of [[[180,150],[820,150]],[[260,300],[340,300]]]){
+    const savedBoundary=(await asUser(alice.id,'select geometry from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].geometry.points;
+    const closeRoute=JSON.stringify({points:points([[180,570],[820,570]])});
+    const serverGap=await db.query("select roi_private.route_clearance_ok($1::jsonb,$2::jsonb,$3::jsonb) as ok",[closeRoute,JSON.stringify(savedBoundary),JSON.stringify(aliceWS.zones)]);
+    assert(serverGap.rows[0].ok,'Server default accepts a route 10 units from the boundary');
+    for(const coordinates of [[[180,578],[820,578]],[[260,300],[340,300]]]){
       const unsafe=structuredClone(aliceWS.routes);unsafe[0].points=points(coordinates);
       const unsafeDraft=await rpc(alice.id,'save_workspace',[JSON.stringify(aliceWS.zones),JSON.stringify(unsafe),JSON.stringify(aliceWS.depth),aliceWS.revision]);
       await assert.rejects(rpc(alice.id,'advance_setup',[]),/недопустима/,'Server enforces gaps from both road boundaries and marker centres');
