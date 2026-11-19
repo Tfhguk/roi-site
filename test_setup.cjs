@@ -86,10 +86,20 @@ async function main(){
     browser=await chromium.launch({channel:process.env.TEST_BROWSER_CHANNEL||'msedge',headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
     const context=await browser.newContext({viewport:{width:1400,height:1100},acceptDownloads:true});
     const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
-    async function register(page,email,name){await page.goto(base+'/roi-site/');await page.locator('#tabRegister').click();await page.locator('#regLogin').fill(email);await page.locator('#regName').fill(name);await page.locator('#regPass').fill('test-password-123');await page.locator('#regPass2').fill('test-password-123');await page.locator('#registerForm button[type=submit]').click();await page.waitForURL('**/setup.html');await page.locator('#polygonName').waitFor();await page.waitForFunction(()=>!document.getElementById('polygonTools').hidden);}
+    async function register(page,email,name){await page.goto(base+'/roi-site/');await page.locator('#tabRegister').click();await page.locator('#regLogin').fill(email);await page.locator('#regName').fill(name);await page.locator('#regPass').fill('test-password-123');await page.locator('#regPass2').fill('test-password-123');await page.locator('#registerForm button[type=submit]').click();await page.waitForURL('**/setup.html');await page.waitForFunction(()=>!document.getElementById('polygonTools').hidden);}
+    async function checkEditorViewport(){
+      await page.waitForFunction(()=>{const map=document.getElementById('map').getBoundingClientRect(),fit=document.getElementById('canvasFit').getBoundingClientRect();return map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1;});
+      const layout=await page.evaluate(()=>{const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};};return {nav:rect('steps'),window:rect('editorWindow'),map:rect('map'),actions:rect('actions'),height:innerHeight,width:innerWidth,overflow:getComputedStyle(document.body).overflow};});
+      assert.equal(layout.overflow,'hidden');assert(layout.nav.top>=0&&layout.nav.bottom<=layout.window.top);
+      for(const box of [layout.window,layout.map,layout.actions])assert(box.top>=layout.nav.bottom&&box.bottom<=layout.height&&box.left>=0&&box.right<=layout.width,JSON.stringify(layout));
+      await page.mouse.wheel(0,700);assert.equal(await page.evaluate(()=>scrollY),0,'Drawing never needs page scrolling');
+    }
     async function clickAt(x,y){const bounds=await page.locator('#map').boundingBox();await page.locator('#map').click({position:{x:x*bounds.width/1000,y:y*bounds.height/700}});}
     await register(page,'alice@example.com','Alice');const alice=accounts.get('alice@example.com');
     assert.equal((await asUser(alice.id,'select registration_status from public.profiles')).rows[0].registration_status,'polygon');
+    assert.equal(await page.locator('#editorWindow').isVisible(),false,'New polygon waits for an explicit button click');
+    await page.locator('#openEditor').click();await checkEditorViewport();
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){await page.setViewportSize(viewport);await checkEditorViewport();await page.screenshot({path:path.join(output,'setup-window-'+viewport.width+'.png')});}
     await page.locator('#background').selectOption('camera');await page.waitForFunction(()=>document.getElementById('camera').videoWidth>0);
     await page.locator('#freezeCamera').click();assert.equal(await page.locator('#frozen').isVisible(),true);
     await page.locator('#background').selectOption('grid');assert.equal(await page.locator('#camera').evaluate(v=>v.srcObject),null);
@@ -97,7 +107,19 @@ async function main(){
     await clickAt(500,100);assert.equal(await page.locator('#vertexList button').count(),5,'Insert vertex on existing edge');
     const bounds=await page.locator('#map').boundingBox();
     await page.mouse.move(bounds.x+500*bounds.width/1000,bounds.y+100*bounds.height/700);await page.mouse.down();await page.mouse.move(bounds.x+500*bounds.width/1000,bounds.y+70*bounds.height/700);await page.mouse.up();
-    await page.locator('#finishShape').click();await page.locator('#polygonName').fill('Общий полигон');await page.locator('#next').click();
+    await page.locator('#finishShape').click();
+    await page.locator('#closeEditor').click();assert.equal(await page.locator('#editorWindow').isVisible(),false);
+    await page.locator('#steps button').first().click();assert.equal(await page.locator('#vertexList button').count(),5,'Opening the current step retains the draft');
+    for(const name of ['', '   ']){
+      await page.locator('#polygonName').fill(name);await page.locator('#next').click();
+      await page.waitForFunction(()=>!document.getElementById('message').hidden&&document.getElementById('messageText').textContent.includes('название полигона'));
+      assert.equal(await page.locator('#message').getAttribute('role'),'alert');assert.equal(await page.locator('#polygonName').getAttribute('aria-invalid'),'true');
+      assert.equal((await asUser(alice.id,'select count(*)::int as count from public.polygons')).rows[0].count,0);
+      await page.locator('#dismissNotification').click();assert.equal(await page.locator('#message').isVisible(),false);
+    }
+    const constraintMessage=await page.evaluate(async()=>{try{await AppCloud.rpc('create_polygon',{p_name:' ',p_points:[{x:0,y:0},{x:100,y:0},{x:100,y:100}]});return '';}catch(error){return error.message;}});
+    assert.match(constraintMessage,/Введите название полигона/);assert(!constraintMessage.includes('polygons_name_check'));
+    await page.locator('#polygonName').fill('  Общий полигон  ');await page.locator('#next').click();
     await page.waitForFunction(()=>!document.getElementById('garage').hidden);
     await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button').click();await page.locator('.equipment-card').waitFor();
     const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
@@ -124,7 +146,7 @@ async function main(){
     const latest=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
     await rpc(alice.id,'save_workspace',[JSON.stringify(latest.zones),JSON.stringify(latest.routes),JSON.stringify(aliceWS.depth),latest.revision]);await rpc(alice.id,'advance_setup',[]);
     const second=await browser.newContext({viewport:{width:1400,height:1100}}),bobPage=await second.newPage();bobPage.on('pageerror',e=>errors.push(e.message));
-    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
+    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);assert.equal(await bobPage.locator('#editorWindow').isVisible(),true,'Loading a shared polygon opens its window');assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await bobPage.locator('.equipment-card').count(),0,'Bob cannot see Alice equipment');
     await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button').click();await bobPage.locator('.equipment-card').waitFor();
     const bob=accounts.get('bob@example.com');
@@ -147,7 +169,7 @@ async function main(){
     await assert.rejects(rpc(alice.id,'create_equipment',['Overflow','robot']),/50 ArUCo/);
     assert.equal((await asUser(alice.id,'select count(*)::int as count from public.marker_reservations')).rows[0].count,50);
     console.log('PASS PostgreSQL: registration trigger, persisted statuses, shared immutable polygons, private equipment/workspaces, distinct marker reservations, revision conflicts, server route validation, RLS and prohibited status updates.');
-    console.log('PASS browser: two accounts, full onboarding, camera/grid switch, edge insertion and dragging, personal garage, SVG/PDF, four zone types, blocked route, depth JSON import/export, completed registration. No JavaScript errors.');
+    console.log('PASS browser: viewport-fitted drawing window on desktop/mobile/landscape, fixed navigation, retained draft, error notifications, blank-name validation and database error translation; two accounts, full onboarding, camera/grid switch, edge insertion and dragging, personal garage, SVG/PDF, four zone types, blocked route, depth JSON import/export, completed registration. No JavaScript errors.');
   }catch(error){
     if(browser)for(const context of browser.contexts())for(const page of context.pages()){
       console.error('BROWSER FAILURE',page.url(),(await page.locator('body').innerText()).slice(-4500));

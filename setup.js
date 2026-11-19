@@ -6,9 +6,59 @@
   const descriptions={polygon:"Нарисуйте границу вручную: каждая вершина станет рукомаркером. Или выберите общий полигон другого пользователя.",garage:"Добавьте свою технику и скачайте её ArUco. Чтобы продолжить, нужна хотя бы одна единица техники.",zones:"Создайте склад, зарядную станцию, зону добычи и зону транспортировки внутри выбранного полигона.",routes:"Рисуйте пути для своей техники. Перемещайте точки, добавляйте точки на отрезках и редактируйте псевдокарту глубины."};
   let profile,polygons=[],equipment=[],ws,step="polygon",selectedId=null,draft=null,selectedVertex=-1,dirty=false,busy=false;
   let stream,drag=null,painting=false,history=[];
+  let noticeTimer;
   document.querySelector("main").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
-  function notice(text,error=false){$("message").textContent=text;$("message").classList.toggle("error",error);}
+  function notice(text,error=false){
+    clearTimeout(noticeTimer);$("message").hidden=!text;if(!text)return;
+    $("messageText").textContent=text;$("message").classList.toggle("error",error);
+    $("message").setAttribute("role",error?"alert":"status");
+    $("notificationTitle").textContent=error?"Ошибка":"Сообщение";$("notificationIcon").textContent=error?"!":"✓";
+    if(!error)noticeTimer=setTimeout(()=>{$("message").hidden=true;},6000);
+  }
+  $("dismissNotification").onclick=()=>notice("");
+  function fitStage(){
+    if($("editorWindow").hidden)return;
+    const box=$("canvasFit"),stage=box.querySelector(".stage");
+    const width=Math.max(1,Math.min(box.clientWidth-2,(box.clientHeight-2)*10/7));
+    stage.style.width=width+"px";stage.style.height=width*7/10+"px";
+  }
+  function setBackgroundInert(value){for(const selector of [".heading","#polygonTools","#garage","#drawingLauncher"])document.querySelector(selector).inert=value;}
+  function openEditor(){
+    if(step==="garage"||!profile)return;
+    const wasHidden=$("editorWindow").hidden;
+    $("editorWindow").hidden=false;$("editorBackdrop").hidden=false;document.body.classList.add("editor-open");
+    $("editorWindow").append($("actions"));setBackgroundInert(true);window.scrollTo(0,0);
+    fitStage();requestAnimationFrame(fitStage);
+    if(wasHidden)$("closeEditor").focus({preventScroll:true});
+  }
+  function closeEditor(focus=true){
+    $("editorWindow").hidden=true;$("editorBackdrop").hidden=true;document.body.classList.remove("editor-open");
+    $("pageActions").append($("actions"));setBackgroundInert(false);
+    $("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");
+    releaseCamera();$("background").value="grid";drag=null;painting=false;
+    if(focus&&!$("drawingLauncher").hidden)$("openEditor").focus({preventScroll:true});
+  }
+  $("openEditor").onclick=openEditor;$("closeEditor").onclick=()=>closeEditor();$("editorBackdrop").onclick=()=>closeEditor();
+  $("toggleProperties").onclick=()=>{const open=$("editorWindow").classList.toggle("properties-open");$("toggleProperties").setAttribute("aria-expanded",String(open));};
+  const layoutObserver=new ResizeObserver(()=>{
+    const header=document.querySelector("header");
+    document.documentElement.style.setProperty("--header-height",header.getBoundingClientRect().height+"px");
+    document.documentElement.style.setProperty("--chrome-height",(header.getBoundingClientRect().height+$("steps").getBoundingClientRect().height)+"px");
+    fitStage();
+  });
+  layoutObserver.observe(document.querySelector("header"));layoutObserver.observe($("steps"));
+  new ResizeObserver(fitStage).observe($("canvasFit"));
+  new ResizeObserver(()=>document.documentElement.style.setProperty("--actions-height",$("actions").getBoundingClientRect().height+"px")).observe($("actions"));
+  document.addEventListener("keydown",event=>{
+    if($("editorWindow").hidden)return;
+    if(event.key==="Escape"){event.preventDefault();closeEditor();return;}
+    if(event.key!=="Tab")return;
+    const controls=[...document.querySelectorAll("header a,header button,#steps button,#editorWindow button,#editorWindow input,#editorWindow select,#editorWindow summary,#map,#notificationCenter button")].filter(el=>!el.disabled&&el.getClientRects().length);
+    const first=controls[0],last=controls.at(-1);
+    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+    if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+  });
   function changed(){dirty=true;$("saveState").textContent="Есть несохранённые изменения";}
   function snapshot(){history.push({draft:clone(draft),ws:clone(ws),selectedId,selectedVertex});if(history.length>80)history.shift();}
   function undo(){const previous=history.pop();if(!previous)return;({draft,ws,selectedId,selectedVertex}=previous);changed();render();}
@@ -23,7 +73,7 @@
     if(!permitted(target))return;
     if(dirty&&target!==step){notice("Сначала сохраните фигуру в проект и изменения на сервере.",true);return;}
     step=target;draft=null;selectedVertex=-1;history=[];
-    if(step==="garage"){releaseCamera();$("background").value="grid";}
+    closeEditor(false);
     if(step==="polygon"){
       selectedId=profile.polygon_id;
       const p=currentPolygon();draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};
@@ -32,6 +82,7 @@
     $("paintMode").checked=false;
     window.history.replaceState(null,"","setup.html?step="+step);
     notice("");render();
+    if(step!=="garage"&&(step!=="polygon"||selectedId))openEditor();
   }
   // Do not use innerHTML for user-supplied names.
   function button(text,action,classes=""){const el=document.createElement("button");el.type="button";el.textContent=text;el.className=classes;el.onclick=()=>run(action);return el;}
@@ -46,8 +97,12 @@
   function render(){
     $("title").textContent=titles[step];$("description").textContent=descriptions[step];
     $("registrationStatus").textContent="Статус регистрации: "+AppCloud.labels[profile.registration_status];
-    $("steps").replaceChildren(...stages.map((s,i)=>{const el=button((i+1)+". "+AppCloud.labels[s],()=>activate(s),s===step?"current":"");el.disabled=!permitted(s);return el;}));
+    const shortLabels={polygon:"Полигон",garage:"Гараж",zones:"Зоны",routes:"Траектории"};
+    $("steps").replaceChildren(...stages.map((s,i)=>{const el=button((i+1)+". "+shortLabels[s],()=>{if(step===s)openEditor();else activate(s);},s===step?"current":"");el.disabled=!permitted(s);el.setAttribute("aria-current",s===step?"step":"false");return el;}));
     $("polygonTools").hidden=step!=="polygon";$("garage").hidden=step!=="garage";$("editor").hidden=step==="garage";
+    $("drawingLauncher").hidden=step==="garage";$("openEditor").textContent=shortLabels[step];$("editorTitle").textContent=shortLabels[step];
+    $("polygonNameLabel").hidden=step!=="polygon";
+    $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
     $("zoneKindLabel").hidden=step!=="zones";$("newShape").hidden=!["zones","routes"].includes(step);
     $("newShape").textContent=step==="zones"?"Новая зона":"Новая траектория";
     $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=Boolean(selectedId)||!draft||draft.points.length<3;
@@ -64,7 +119,7 @@
       $("shapeName").value=draft.name;$("routeEquipment").replaceChildren(...ownEquipment().map(e=>new Option(e.name,e.id)));
       $("routeEquipment").value=draft.equipmentId||"";$("maxDepth").value=draft.maxDepth??5;$("maxSlope").value=draft.maxSlope??2;
     }
-    renderLists();draw();renderSaveState();
+    renderLists();draw();renderSaveState();fitStage();
   }
   function renderGarage(){
     $("equipmentList").replaceChildren(...ownEquipment().map(item=>{
@@ -86,7 +141,7 @@
       const text=document.createElement("span");text.className="grow";text.textContent=(kinds[item.kind]?kinds[item.kind]+": ":"")+item.name;
       row.append(text,button("Изменить",()=>{
         if(draft)throw Error("Сначала сохраните текущую фигуру в проект.");
-        snapshot();draft={...clone(item),index,closed:true};selectedVertex=-1;render();
+        snapshot();draft={...clone(item),index,closed:true};selectedVertex=-1;render();$("editorWindow").classList.add("properties-open");$("toggleProperties").setAttribute("aria-expanded","true");
       }),button("Удалить",()=>{snapshot();collection.splice(index,1);if(draft?.index===index)draft=null;else if(draft?.index>index)draft.index--;changed();render();},"danger"));
       list.append(row);
     });
@@ -178,12 +233,13 @@
   });
   $("freezeCamera").onclick=()=>{if(!stream)return;$("frozen").getContext("2d").drawImage($("camera"),0,0,1000,700);$("frozen").hidden=false;$("camera").hidden=true;$("resumeCamera").hidden=false;$("freezeCamera").hidden=true;};
   $("resumeCamera").onclick=()=>{$("frozen").hidden=true;$("camera").hidden=false;$("freezeCamera").hidden=false;$("resumeCamera").hidden=true;};
-  $("newPolygon").onclick=()=>{snapshot();selectedId=null;draft={points:[],closed:false};$("polygonName").value="";changed();render();};
-  $("copyPolygon").onclick=()=>{if(!currentPolygon())return;snapshot();const p=currentPolygon();draft={points:p.geometry.points.map(p=>newPoint(p)),closed:true};selectedId=null;$("polygonName").value=p.name+" — копия";changed();render();};
-  $("polygonSelect").onchange=()=>{snapshot();selectedId=$("polygonSelect").value||null;const p=currentPolygon();draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};$("polygonName").value=p?.name||"";selectedVertex=-1;render();};
+  $("newPolygon").onclick=()=>{snapshot();selectedId=null;draft={points:[],closed:false};$("polygonName").value="";$("polygonName").removeAttribute("aria-invalid");changed();render();openEditor();};
+  $("copyPolygon").onclick=()=>{if(!currentPolygon())return;snapshot();const p=currentPolygon();draft={points:p.geometry.points.map(p=>newPoint(p)),closed:true};selectedId=null;$("polygonName").value=Array.from(p.name+" — копия").slice(0,100).join("");changed();render();openEditor();};
+  $("polygonSelect").onchange=()=>{snapshot();selectedId=$("polygonSelect").value||null;const p=currentPolygon();draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};$("polygonName").value=p?.name||"";$("polygonName").removeAttribute("aria-invalid");selectedVertex=-1;render();openEditor();};
+  $("polygonName").addEventListener("input",()=>{$("polygonName").removeAttribute("aria-invalid");if(!selectedId)changed();});
   $("finishShape").onclick=()=>{if(!G.validPoints(draft.points))return notice("Граница должна иметь хотя бы три вершины и не пересекаться.",true);snapshot();draft.closed=true;changed();draw();};
   $("clearShape").onclick=()=>{if(!editable())return;snapshot();draft.points=[];draft.closed=false;selectedVertex=-1;changed();render();};
-  $("newShape").onclick=()=>{if(draft)return notice("Сначала сохраните текущую фигуру в проект.",true);snapshot();draft={id:uid(),name:step==="zones"?kinds[$("zoneKind").value]:"Траектория "+(ws.routes.length+1),kind:$("zoneKind").value,points:[],closed:false,equipmentId:ownEquipment()[0]?.id,maxDepth:5,maxSlope:2};selectedVertex=-1;render();};
+  $("newShape").onclick=()=>{if(draft)return notice("Сначала сохраните текущую фигуру в проект.",true);snapshot();draft={id:uid(),name:step==="zones"?kinds[$("zoneKind").value]:"Траектория "+(ws.routes.length+1),kind:$("zoneKind").value,points:[],closed:false,equipmentId:ownEquipment()[0]?.id,maxDepth:5,maxSlope:2};selectedVertex=-1;$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");render();};
   function applyDraft(){
     if(!draft||step==="polygon")return;
     const closed=step==="zones";
@@ -204,8 +260,10 @@
   async function save(){
     if(step==="polygon"){
       if(selectedId)return;
+      const name=$("polygonName").value.trim();
+      if(!name||Array.from(name).length>100){openEditor();$("polygonName").setAttribute("aria-invalid","true");requestAnimationFrame(()=>$("polygonName").focus());throw Error("Введите название полигона: от 1 до 100 символов.");}
       if(!draft.closed||!G.validPoints(draft.points))throw Error("Замкните корректную границу полигона.");
-      const result=await AppCloud.rpc("create_polygon",{p_name:$("polygonName").value,p_points:draft.points});
+      const result=await AppCloud.rpc("create_polygon",{p_name:name,p_points:draft.points});
       polygons.unshift(result);selectedId=result.id;draft={points:clone(result.geometry.points),closed:true};
     }else{
       if(draft)applyDraft();

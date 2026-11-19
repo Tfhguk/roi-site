@@ -24,7 +24,9 @@
     const result = await response.json().catch(() => null);
     if (!response.ok) {
       if (auth && response.status === 401) { localStorage.removeItem(KEY); localStorage.removeItem(PROFILE); }
-      throw Error(result?.msg || result?.error_description || result?.message || "Ошибка сервера: " + response.status);
+      const message=result?.msg || result?.error_description || result?.message || "Ошибка сервера: " + response.status;
+      if(message.includes("polygons_name_check"))throw Error("Введите название полигона: от 1 до 100 символов.");
+      throw Error(message);
     }
     return result;
   }

@@ -1,1 +1,67 @@
 :root{color-scheme:dark;--bg:#0f172a;--panel:#1e293b;--border:#334155;--text:#e2e8f0;--muted:#a3b4ca;--accent:#38bdf8}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",sans-serif}header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:16px 24px;border-bottom:1px solid var(--border)}header #account{margin-left:auto}a{color:var(--accent)}main{max-width:1500px;margin:auto;padding:22px}h1{font-size:1.65rem;margin:6px 0}h2{font-size:1.1rem}p{margin:8px 0 15px}button,.file-button{border:1px solid var(--border);background:#26364b;color:var(--text);border-radius:9px;padding:10px 14px;cursor:pointer;font:inherit}button:hover{border-color:var(--accent)}button:disabled{opacity:.45;cursor:default}.primary{background:#0369a1;border-color:#38bdf8}.danger{color:#fda4af}input,select{padding:9px;border:1px solid #475569;border-radius:7px;background:#0f172a;color:var(--text);font:inherit;max-width:100%}input[type=checkbox]{width:auto}label{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:.85rem}label:has(input[type=checkbox]){flex-direction:row;align-items:center}label input[type=number]{width:130px}.controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.panel{padding:18px;background:var(--panel);border:1px solid var(--border);border-radius:12px;margin-bottom:16px}.heading{display:flex;align-items:center;justify-content:space-between;gap:15px}.badge{border:1px solid var(--border);border-radius:20px;padding:5px 12px;white-space:nowrap}.muted{color:var(--muted);font-size:.88rem}#steps{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}#steps button.current{border-color:var(--accent);background:#164e63}#message{min-height:24px;color:#7dd3fc;white-space:pre-line}#message.error,#validation .error{color:#fda4af}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:16px}.stage{position:relative;background:#101e31;border:1px solid #475569;border-radius:12px;overflow:hidden;aspect-ratio:10/7}.stage>video,.stage>canvas,.stage>svg{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}#map{touch-action:none;user-select:none;cursor:crosshair}#map .vertex{cursor:grab}#map text{pointer-events:none;font:14px sans-serif;fill:#fff;paint-order:stroke;stroke:#0f172a;stroke-width:4px}#map .edge{cursor:copy}.item{padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap}.item .grow{flex:1}.item button{padding:5px 8px}#vertexList{max-height:220px;overflow:auto;font-size:.8rem}#shapeProperties label{margin:10px 0}#shapeProperties button{width:100%}#validation{font-size:.85rem;margin-top:12px}#validation p{margin:6px 0}.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}.equipment-card{padding:18px;background:var(--panel);border:1px solid var(--border);border-radius:12px}.equipment-card img{display:block;width:150px;height:150px;max-width:100%;margin:10px 0}.equipment-card button{margin:4px}footer{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;padding:18px 0;position:static;background:#0f172aee;border-top:1px solid var(--border)}footer #back{margin-right:auto}.file-button input{display:block;font-size:.8rem;max-width:220px}summary{cursor:pointer;font-weight:600}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #38bdf8;outline-offset:3px}@media(max-width:850px){main{padding:14px}.workspace{grid-template-columns:1fr}.workspace aside{max-height:none}header{padding:12px}footer{position:static}footer button{flex:1}#steps button{font-size:.8rem;padding:7px}.heading{display:block}}
+/* The navigation and drawing window use the available viewport independently. */
+:root{--header-height:76px;--chrome-height:136px}
+body{padding-top:var(--chrome-height)}
+header{position:fixed;inset:0 0 auto;z-index:60;background:var(--bg)}
+#steps{position:fixed;top:var(--header-height);left:0;right:0;z-index:60;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0;padding:10px 22px;background:var(--bg);border-bottom:1px solid var(--border)}
+#steps button{min-width:0}
+body.editor-open{overflow:hidden}
+body.editor-open main{height:calc(100dvh - var(--chrome-height));overflow:hidden}
+#editorBackdrop{position:fixed;inset:var(--chrome-height) 0 0;z-index:29;background:#020617aa}
+.editor-window{position:fixed;z-index:30;top:calc(var(--chrome-height) + 10px);bottom:10px;left:12px;right:12px;max-width:1476px;margin:auto;display:flex;flex-direction:column;gap:10px;min-height:0;padding:12px;background:var(--panel);border:1px solid #64748b;border-radius:12px;box-shadow:0 12px 50px #0009;overflow:hidden}
+.window-heading{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.window-heading h2{margin:0}
+#polygonNameLabel{flex:1;max-width:500px}
+#closeEditor{margin-left:auto}
+#toggleProperties{display:none}
+#editorWindow #editor{display:flex;flex-direction:column;flex:1;min-height:0;gap:8px}
+#editorWindow .controls.panel{margin:0;padding:8px;gap:8px;flex-shrink:0}
+#editorWindow .controls.panel button{padding:8px 10px;font-size:.88rem}
+#editorWindow .workspace{position:relative;flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 280px;grid-template-rows:minmax(0,1fr);gap:12px}
+.canvas-panel{display:flex;flex-direction:column;min-width:0;min-height:0}
+.canvas-fit{flex:1;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.canvas-fit .stage{box-sizing:content-box;flex:none;aspect-ratio:auto}
+#editorHint{flex-shrink:0;margin:6px 0 0;font-size:.76rem}
+#editorWindow aside.panel{min-height:0;overflow:auto;margin:0;padding:12px}
+#editorWindow aside h2{margin:0 0 8px}
+#editorWindow footer{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;flex-shrink:0;padding:8px 0 0;margin:0;background:transparent}
+#editorWindow footer button{font-size:.85rem;padding:8px;min-width:0}
+#editorWindow footer #back{margin-right:0}
+#depthPanel{flex-shrink:0;max-height:28vh;overflow:auto;margin:0;padding:9px 12px}
+#depthPanel p{margin:6px 0;font-size:.78rem}
+#depthPanel .controls{gap:8px}
+#depthPanel .controls button,#depthPanel input{font-size:.8rem;padding:6px}
+#depthPanel label input[type=number]{width:95px}
+#notificationCenter{position:fixed;z-index:100;right:20px;bottom:20px;width:min(440px,calc(100vw - 32px));pointer-events:none}
+body.editor-open #notificationCenter{bottom:calc(var(--actions-height, 70px) + 30px);max-height:calc(100dvh - var(--chrome-height) - var(--actions-height, 70px) - 45px);overflow:auto}
+#message.notification{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:start;gap:10px;min-height:0;padding:16px;color:var(--text);background:#26364b;border:1px solid #64748b;border-left:5px solid var(--accent);border-radius:10px;box-shadow:0 8px 36px #0009;white-space:normal;pointer-events:none;animation:notification-in .18s ease-out}
+#message.notification.error{color:var(--text);border-left-color:#fb7185}
+#notificationIcon{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#164e63;color:#7dd3fc;font-weight:bold}
+#message.error #notificationIcon{background:#881337;color:#fecdd3}
+#messageText{margin:4px 0 0;white-space:pre-line;overflow-wrap:anywhere}
+#dismissNotification{padding:0 5px;border:0;background:transparent;font-size:1.1rem;pointer-events:auto}
+input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
+@keyframes notification-in{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){#message.notification{animation:none}}
+@media(max-width:750px){
+ header{gap:8px;font-size:.85rem;padding:8px 12px}header strong{display:none}header button{padding:6px 10px}
+ #steps{gap:5px;padding:8px}#steps button{padding:7px 3px;font-size:.76rem}
+ .editor-window{left:5px;right:5px;bottom:5px;top:calc(var(--chrome-height) + 5px);padding:8px;gap:8px}
+ .window-heading{gap:7px;flex-wrap:wrap}.window-heading h2{font-size:1rem}
+ #polygonNameLabel{order:1;flex-basis:100%;max-width:none;flex-direction:row;align-items:center;gap:8px}#polygonNameLabel input{min-width:0;flex:1;padding:6px}
+ #closeEditor,#toggleProperties{font-size:.8rem;padding:6px 8px}#toggleProperties{display:block;margin-left:auto}#closeEditor{margin-left:0}
+ #editorWindow .controls.panel{gap:5px;padding:5px}#editorWindow .controls.panel button{padding:6px;font-size:.76rem}#editorWindow .controls.panel label{font-size:.76rem;flex-direction:row;align-items:center}#editorWindow .controls.panel select{padding:5px;max-width:210px;font-size:.76rem}
+ #editorWindow .workspace{grid-template-columns:minmax(0,1fr);gap:0}
+ #editorWindow aside.panel{display:none;position:absolute;inset:0 0 0 auto;width:min(280px,85%);z-index:5;box-shadow:-8px 0 25px #0008}
+ #editorWindow.properties-open aside.panel{display:block}
+ #editorWindow footer{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding-top:6px}#editorWindow footer button{font-size:.72rem;padding:6px}
+ #editorHint{font-size:.68rem;line-height:1.25}
+ #notificationCenter{right:12px;bottom:12px}
+}
+@media(max-height:500px){
+ header{padding-top:4px;padding-bottom:4px}#steps{padding-top:4px;padding-bottom:4px}#steps button{padding-top:4px;padding-bottom:4px}
+ .editor-window{gap:5px;padding:6px}.window-heading h2{font-size:.9rem}#polygonNameLabel{font-size:.7rem;flex-direction:row;align-items:center}#polygonNameLabel input{padding:4px;min-width:0}#closeEditor,#toggleProperties{padding:4px 8px}
+ #editorWindow .controls.panel{padding:4px;gap:4px}#editorWindow .controls.panel button,#editorWindow .controls.panel select{padding:4px;font-size:.72rem}#editorWindow .controls.panel label{flex-direction:row;align-items:center;font-size:.72rem}
+ #editorHint{display:none}#editorWindow footer{padding-top:4px}#editorWindow footer button{padding:4px;font-size:.72rem}
+ #depthPanel{max-height:24vh;font-size:.75rem}
+}
