@@ -68,6 +68,7 @@
     align-self:flex-start; margin-top:6px;
     color:var(--accent); font-size:.85rem; font-weight:600;
   }
+  .step[aria-disabled="true"]{opacity:.5;cursor:default;transform:none;box-shadow:none;border-color:var(--border);}
   @media(max-width:600px){
     main{padding:20px 16px;}
   }
@@ -122,16 +123,18 @@ if (AppCloud.configured) {
     if(!AppCloud.session()){location.replace("login.html");return;}
     try {
       const profile=await AppCloud.me();
-      if(profile.registration_status!=="ready"){location.replace("setup.html");return;}
+      if(profile.registration_status!=="ready"&&(AppCloud.routesEnabled||profile.registration_status!=="routes")){location.replace("setup.html");return;}
       for(const id of ["userName","helloName"])document.getElementById(id).textContent=profile.name;
       document.getElementById("userAvatar").textContent=profile.name.slice(0,1);
-      document.getElementById("userRole").textContent=AppCloud.labels[profile.registration_status];
-      document.querySelector(".hello p").textContent="Настройка завершена. Можно изменять свой гараж, зоны, карту глубины и траектории.";
+      document.getElementById("userRole").textContent=!AppCloud.routesEnabled&&profile.registration_status==="routes"?"Основные этапы настроены":AppCloud.labels[profile.registration_status];
+      document.querySelector(".hello p").textContent=AppCloud.routesEnabled?"Настройка завершена. Можно изменять свой гараж, зоны, карту глубины и траектории.":"Можно изменять полигон, свой гараж и зоны. Раздел «Траектории» временно отключён.";
       const steps=document.querySelector(".steps");steps.replaceChildren();
       for(const [stage,title,text] of [["polygon","Полигон","Выбор общего полигона или создание копии границы."],["garage","Мой гараж","Ваша техника и её ArUCo-маркеры."],["zones","Рабочие зоны","Склад, зарядные станции, добыча и транспортировка."],["routes","Траектории и глубины","Изменение маршрутов и псевдокарты глубины."]]){
         const link=document.createElement("a");link.className="step";link.href="setup.html?step="+stage;
+        const disabled=stage==="routes"&&!AppCloud.routesEnabled;
+        if(disabled){link.removeAttribute("href");link.setAttribute("aria-disabled","true");}
         const heading=document.createElement("h3");heading.textContent=title;
-        const description=document.createElement("p");description.textContent=text;link.append(heading,description);steps.append(link);
+        const description=document.createElement("p");description.textContent=disabled?"Временно отключено.":text;link.append(heading,description);steps.append(link);
       }
       document.getElementById("logoutBtn").onclick=async()=>{try{await AppCloud.logout();}finally{location.href="login.html";}};
     }catch(error){document.querySelector(".hello p").textContent=error.message;document.querySelector(".steps").replaceChildren();}

@@ -66,7 +66,9 @@
     return Array.isArray(result)&&result.length===1?result[0]:result;
   }
   const labels = { polygon: "Создание/выбор полигона", garage: "Создание техники", zones: "Создание зон", routes: "Создание допустимых траекторий", ready: "Регистрация завершена" };
-  global.AppCloud = Object.freeze({ configured, session, profile, me, signIn, signUp, logout, request, rpc, labels,
+  // Temporary pause: enable again with ROI_CLOUD.features.routes = true.
+  const routesEnabled = config.features?.routes === true;
+  global.AppCloud = Object.freeze({ configured, routesEnabled, session, profile, me, signIn, signUp, logout, request, rpc, labels,
     async polygons() { return request("/rest/v1/polygons?select=*&order=created_at.desc"); },
     async equipment() { return request("/rest/v1/equipment?select=*&order=created_at.asc"); },
     async workspace() { const rows = await request("/rest/v1/workspaces?select=*"); return rows[0] || null; },

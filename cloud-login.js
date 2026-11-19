@@ -12,7 +12,7 @@ function setupCloudLogin() {
     $("formSubtitle").textContent=register?"Начнём с создания или выбора полигона":"Ваш полигон, техника и маршруты";
   }
   $("tabLogin").onclick=()=>tab(false);$("tabRegister").onclick=()=>tab(true);
-  function enter(profile){location.href=profile.registration_status==="ready"?"welcome.html":"setup.html";}
+  function enter(profile){location.href=profile.registration_status==="ready"||(!AppCloud.routesEnabled&&profile.registration_status==="routes")?"welcome.html":"setup.html";}
   let busy=false;
   function handler(id,action){return async event=>{
     event.preventDefault();if(busy)return;busy=true;$(id).textContent="";

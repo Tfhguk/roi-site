@@ -72,7 +72,7 @@
   const routeColors=["#4ade80","#38bdf8","#fbbf24","#c4b5fd","#fb923c","#f472b6"];
   function routeColor(route){return routeColors[Math.max(0,ownEquipment().findIndex(e=>e.id===route.equipmentId))%routeColors.length];}
   function ownEquipment(){return equipment.filter(item=>item.polygon_id===profile.polygon_id);}
-  function permitted(target){return stages.indexOf(target)<= (profile.registration_status==="ready"?3:stages.indexOf(profile.registration_status));}
+  function permitted(target){return (target!=="routes"||AppCloud.routesEnabled)&&stages.indexOf(target)<= (profile.registration_status==="ready"?3:stages.indexOf(profile.registration_status));}
   function newPoint(p){return {id:uid(),x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10};}
   function editable(){return draft && !(step==="polygon"&&selectedId);}
   function allMarkers(){return [...(currentPolygon()?.geometry.points||[]),...(ws?.zones||[]).flatMap(z=>z.points),...ownEquipment().map(e=>({markerId:e.marker_id}))].filter(p=>Number.isInteger(p.markerId));}
@@ -127,7 +127,7 @@
     $("depthSource").textContent=ws.depth.source==="synthetic"?"Тестовая карта · seed "+ws.depth.seed:"Карта проекта";
     $("routeProperties").hidden=step!=="routes";$("listTitle").textContent=step==="polygon"?"Вершины":step==="zones"?"Зоны":"Траектории";
     $("routeClearances").hidden=step!=="routes";$("routeLegend").hidden=step!=="routes";
-    $("next").textContent=step==="routes"?"Завершить настройку ✓":"Далее →";$("back").disabled=step==="polygon";
+    $("next").textContent=step==="routes"?"Завершить настройку ✓":step==="zones"&&!AppCloud.routesEnabled?"На главную →":"Далее →";$("back").disabled=step==="polygon";
     $("save").hidden=step==="garage";$("copyPolygon").disabled=!selectedId;
     $("polygonName").disabled=Boolean(selectedId);
     $("polygonSelect").replaceChildren(new Option("Новый полигон",""),...polygons.map(p=>new Option(p.name,p.id)));
@@ -392,6 +392,7 @@
       if(Object.keys(kinds).some(k=>!ws.zones.some(z=>z.kind===k)))throw Error("Создайте все четыре типа зон.");
       const errors=G.zoneErrors(ws.zones,boundary());if(errors.length)throw Error(errors.join("\n"));
       if(profile.registration_status==="zones")profile=await AppCloud.advance();
+      if(!AppCloud.routesEnabled){dirty=false;releaseCamera();location.href="welcome.html";return;}
       activate("routes");return;
     }
     if(!ws.routes.length)throw Error("Создайте хотя бы одну траекторию.");
@@ -416,8 +417,10 @@
     for(const route of ws.routes)if(!route.number){while(usedNumbers.has(number))number++;route.number=number;usedNumbers.add(number);}
     $("routeLegend").open=matchMedia("(min-width: 1000px)").matches;
     $("account").textContent=profile.name;$("depthCols").value=ws.depth.cols;$("depthRows").value=ws.depth.rows;
-    const target=new URLSearchParams(location.search).get("step")||(profile.registration_status==="ready"?"routes":profile.registration_status);
-    activate(permitted(target)&&stages.includes(target)?target:profile.registration_status==="ready"?"routes":profile.registration_status);
+    const fallback=["ready","routes"].includes(profile.registration_status)?(AppCloud.routesEnabled?"routes":"zones"):profile.registration_status;
+    const target=new URLSearchParams(location.search).get("step")||fallback;
+    activate(permitted(target)&&stages.includes(target)?target:fallback);
+    if(target==="routes"&&!AppCloud.routesEnabled)notice("Раздел «Траектории» временно отключён.");
   }catch(error){notice(error.message,true);$("title").textContent="Не удалось загрузить рабочее пространство";document.querySelectorAll("main button,main input,main select").forEach(el=>el.disabled=true);}
   finally{document.querySelector("main").inert=false;}
 })();

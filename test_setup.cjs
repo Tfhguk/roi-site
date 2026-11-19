@@ -124,7 +124,7 @@ async function main(){
   const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[]};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
-  let base;
+  let base,routesEnabled=true;
   const server=http.createServer(async(request,response)=>{
     try{
       const url=new URL(request.url,'http://localhost');
@@ -158,7 +158,7 @@ async function main(){
       }
       if(!url.pathname.startsWith('/roi-site/')){response.writeHead(404);return response.end();}
       const relative=decodeURIComponent(url.pathname.slice('/roi-site/'.length))||'index.html';
-      if(relative==='cloud-config.js'){response.writeHead(200,{'Content-Type':'text/javascript'});return response.end('window.ROI_CLOUD='+JSON.stringify({url:base,publishableKey:'sb_publishable_test'})+';');}
+      if(relative==='cloud-config.js'){response.writeHead(200,{'Content-Type':'text/javascript'});return response.end('window.ROI_CLOUD='+JSON.stringify({url:base,publishableKey:'sb_publishable_test',features:{routes:routesEnabled}})+';');}
       const file=path.resolve(root,'dist',relative);if(!file.startsWith(path.resolve(root,'dist')+path.sep))throw Error('Invalid path');
       const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8'};
       response.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});response.end(fs.readFileSync(file));
@@ -328,6 +328,17 @@ async function main(){
       await page.locator('#depthPanel summary').click();
     }
     await page.screenshot({path:path.join(output,'setup-live.png'),fullPage:true});
+    routesEnabled=false;
+    const beforePause=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
+    await page.reload();await page.waitForURL('**/setup.html?step=zones');
+    assert(await page.locator('#steps button').nth(3).isDisabled(),'Paused trajectories cannot be opened from progress navigation');
+    assert(await page.locator('#depthPanel').isHidden(),'Direct route URL falls back to zones without starting the planner');
+    await page.locator('#next').click();await page.waitForURL('**/welcome.html');
+    assert.equal(await page.locator('.step[aria-disabled="true"]').count(),1);
+    assert.equal(await page.locator('.step[aria-disabled="true"]').getAttribute('href'),null);
+    const afterPause=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
+    assert.deepEqual(afterPause.routes,beforePause.routes,'Pausing leaves saved routes intact');
+    assert.deepEqual(afterPause.depth,beforePause.depth,'Pausing leaves saved depth intact');
     assert.deepEqual(errors,[]);
     for(let i=reservations.length;i<50;i++)await rpc(alice.id,'create_equipment',['Capacity '+i,'robot']);
     await assert.rejects(rpc(alice.id,'create_equipment',['Overflow','robot']),/50 ArUCo/);
