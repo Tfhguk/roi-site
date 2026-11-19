@@ -62,6 +62,9 @@ async function main() {
       args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
     // Only the test profile accepts the generated development certificate.
     const context = await browser.newContext({ ignoreHTTPSErrors: true });
+    await context.addInitScript(() => Object.defineProperty(globalThis, "ROI_CLOUD", {
+      value: Object.freeze({ url: "", publishableKey: "" }), writable: false
+    }));
     const page = await context.newPage();
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));

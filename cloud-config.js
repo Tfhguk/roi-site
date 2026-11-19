@@ -1,2 +1,2 @@
-// Public client parameters only. Never put a secret/service_role key here.
-window.ROI_CLOUD = Object.freeze({ url: "", publishableKey: "" });
+// Public browser parameters. Server privileges are enforced by PostgreSQL RLS.
+window.ROI_CLOUD = Object.freeze({"url":"https://beowvwodroxispeyygmn.supabase.co","publishableKey":"sb_publishable_D5nmq0Pf7Yqt20DgHt-OiQ_0Paw5GZQ"});

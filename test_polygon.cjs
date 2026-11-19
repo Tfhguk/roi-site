@@ -134,6 +134,9 @@ async function main() {
       "--use-file-for-fake-video-capture=" + path.join(output, "polygon-camera.y4m")
     ] });
     const context = await browser.newContext({ viewport: { width: 1440, height: 1080 }, acceptDownloads: true });
+    await context.addInitScript(() => Object.defineProperty(globalThis, "ROI_CLOUD", {
+      value: Object.freeze({ url: "", publishableKey: "" }), writable: false
+    }));
     await context.addInitScript(({ blockedWorker, failedWorker }) => {
       globalThis.workerAttempts = 0;
       if (typeof Worker === "undefined") return;

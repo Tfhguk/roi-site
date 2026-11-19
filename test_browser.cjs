@@ -28,6 +28,11 @@ async function main() {
   try {
     browser = await chromium.launch({ channel: process.env.TEST_BROWSER_CHANNEL || "msedge", headless: true });
     const context = await browser.newContext({ viewport: { width: 1280, height: 960 }, acceptDownloads: true });
+    // These regression checks cover the legacy local demo independently of
+    // the real cloud project configured in a developer's checkout.
+    await context.addInitScript(() => Object.defineProperty(globalThis, "ROI_CLOUD", {
+      value: Object.freeze({ url: "", publishableKey: "" }), writable: false
+    }));
     const external = [];
     await context.route("**/*", route => {
       const url = new URL(route.request().url());
