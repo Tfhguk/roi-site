@@ -40,6 +40,10 @@ jobs:
         run: npm run test:charging
         env:
           TEST_BROWSER_CHANNEL: chromium
+      - name: Verify truck simulation
+        run: npm run test:truck
+        env:
+          TEST_BROWSER_CHANNEL: chromium
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site

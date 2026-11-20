@@ -16,10 +16,14 @@
     return c;
   }
   class Simulation{
-    constructor(input){this.config=config(input);this.reset();}
+    constructor(input,battery=null){
+      this.config=config(input);this.battery=battery;
+      if(battery)Object.defineProperties(this,{soc:{get:()=>battery.soc,set:value=>{battery.soc=value;}},polarization:{get:()=>battery.polarization,set:value=>{battery.polarization=value;}}});
+      this.reset();
+    }
     reset(){
       this.time=0;this.stageTime=0;this.stage="idle";this.q=[.025,.08,-.12,.6];this.velocity=[0,0,0,0];
-      this.soc=this.config.initialSoc;this.polarization=0;this.current=0;this.voltage=this.ocv();this.outputVoltage=this.voltage;
+      this.soc=this.battery?this.battery.soc:this.config.initialSoc;this.polarization=this.battery?this.battery.polarization:0;this.current=0;this.voltage=this.ocv();this.outputVoltage=this.voltage;
       this.lossWh=0;this.energyWh=0;this.force=0;this.axisForce=[0,0];this.contact=false;this.homed=false;this.connected=true;this.mode="—";
       this.error="";this.reason="";this.userStopped=false;this.history=[];this.samples=[];this.sampleAt=0;this.lowCurrentTime=0;this.sample();
     }
@@ -66,17 +70,19 @@
         else if(this.contact)this.transition("charge");
         else if(this.stageTime>8)this.fail("Нет подтверждения электрического контакта. Зарядка запрещена.");
       }else if(this.stage==="charge"){
-        if(!this.contact||!this.homed||!this.connected){this.fail("Не выполнены условия разрешения заряда.");return;}
+        if(!this.contact||!this.homed||!this.connected||(this.battery&&!this.battery.chargeEnabled)){this.fail("Не выполнены условия разрешения заряда.");return;}
         const r0=.1,rp=.06,cp=600,voltageLimit=4.2,efficiency=.98;
-        const allowed=clamp((voltageLimit-this.ocv()-this.polarization)/(r0+this.config.resistanceOhm),0,this.config.currentA);
+        const load=this.battery?.loadA||0;
+        const allowed=clamp((voltageLimit-this.ocv()-this.polarization+r0*load)/(r0+this.config.resistanceOhm),0,this.config.currentA);
         this.current=allowed;this.mode=allowed<this.config.currentA-1e-6?"CV":"CC";
-        const chargeTime=Math.min(dt,(this.config.targetSoc-this.soc)*3600*this.config.capacityAh/(efficiency*Math.max(allowed,1e-12)));
-        this.soc=clamp(this.soc+efficiency*allowed*chargeTime/(3600*this.config.capacityAh),0,this.config.targetSoc);
-        this.polarization=allowed*rp+(this.polarization-allowed*rp)*Math.exp(-dt/(rp*cp));
-        this.voltage=this.ocv()+allowed*r0+this.polarization;
+        const net=allowed-load,rate=net>=0?efficiency*net:net;
+        const chargeTime=rate>0?Math.min(dt,(this.config.targetSoc-this.soc)*3600*this.config.capacityAh/rate):dt;
+        this.soc=clamp(this.soc+rate*chargeTime/(3600*this.config.capacityAh),0,this.config.targetSoc);
+        this.polarization=net*rp+(this.polarization-net*rp)*Math.exp(-chargeTime/(rp*cp));
+        this.voltage=this.ocv()+net*r0+this.polarization;
         this.outputVoltage=this.voltage+allowed*this.config.resistanceOhm;
         this.lossWh+=allowed**2*this.config.resistanceOhm*chargeTime/3600;
-        this.energyWh+=this.voltage*allowed*chargeTime/3600;
+        this.energyWh+=this.voltage*net*chargeTime/3600;
         this.lowCurrentTime=allowed<=.05?this.lowCurrentTime+dt:0;
         if(this.soc>=this.config.targetSoc-1e-10||this.lowCurrentTime>=5){
           this.reason=this.lowCurrentTime>=5?"Завершение по малому току":"Достигнут целевой заряд";

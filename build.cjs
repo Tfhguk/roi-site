@@ -11,7 +11,8 @@ const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.htm
   "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
   "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js",
-  "charging.html", "charging.css", "charging-model.js", "charging.js"];
+  "charging.html", "charging.css", "charging-model.js", "charging.js",
+  "truck.html", "truck.css", "truck-model.js", "truck.js"];
 const VENDOR_FILES = [
   ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
   ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
@@ -90,14 +91,19 @@ function build() {
     for (const [source, target] of VENDOR_FILES.filter(([source]) => source.endsWith(".js"))) {
       content = content.split(source).join(target);
     }
-    if (name === "setup.html") {
-      const version = createHash("sha256").update(fs.readFileSync(path.join(ROOT, "setup.js"))).digest("hex").slice(0, 16);
-      content = content.replace('src="setup.js"', 'src="setup.js?v=' + version + '"');
-    }
     write(name, content);
   }
-  write("index.html", fs.readFileSync(path.join(DIST, "login.html")));
   for (const [source, target] of VENDOR_FILES) write(target, fs.readFileSync(path.join(ROOT, source)));
+  for (const name of SOURCE_FILES.filter(name => name.endsWith(".html"))) {
+    const html = fs.readFileSync(path.join(DIST, name), "utf8").replace(/\b(src|href)="([^"?#]+\.(?:js|css))"/g, (match, attr, asset) => {
+      const file = path.join(DIST, asset);
+      if (!fs.existsSync(file)) return match;
+      const version = createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 16);
+      return attr + '="' + asset + '?v=' + version + '"';
+    });
+    fs.writeFileSync(path.join(DIST, name), html);
+  }
+  write("index.html", fs.readFileSync(path.join(DIST, "login.html")));
   write("_headers", "/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(self), microphone=()\n/*.html\n  Cache-Control: no-cache\n/*.js\n  Cache-Control: no-cache\n");
   makeZip(files.sort());
   console.log("Ready: " + DIST + " (" + files.length + " public files)");
