@@ -44,6 +44,7 @@ function geometryTests(){
   assert(concavePath&&G.inPolygon(concavePath,concave,false),'A* stays inside concave polygons');
   const zones=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]].map(([kind,coords],i)=>({id:'zone-'+i,name:kind,kind,points:points(coords)}));
   const vehicle={id:'truck',name:'Truck',type:'truck'},terrainBoundary=points([[100,100],[900,100],[900,600],[100,600]]);
+  assert(G.zoneErrors([...zones,{...zones[3],id:'second-transport'}],terrainBoundary).some(message=>message.includes('только одна транспортная зона')));
   for(const seed of [...Array.from({length:32},(_,i)=>i),12345,23456,4294967295]){
     const map=G.generateDepth(terrainBoundary,zones,seed);assert.deepEqual(map,G.generateDepth(terrainBoundary,zones,seed),'Seed reproduces the map');
     assert(map.cells.includes(null)&&map.cells.some(v=>v>0));assert.equal(G.validateDepth(map).seed,seed);
@@ -273,7 +274,8 @@ async function main(){
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
     const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]];
     for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#map').click({button:'right',position:{x:20,y:20}});await page.locator('#contextFinishShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
-    await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();await page.locator('#closeProperties').click();
+    assert(await page.locator('#zoneKind option[value=transport]').isDisabled(),'A second transport zone cannot be selected');
+    await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').filter({hasText:'Транспортная зона'}).getByRole('button',{name:'Изменить'}).click();await page.locator('#closeProperties').click();
     for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
       await page.setViewportSize(viewport);await checkEditorViewport();await checkControlsFit('#editorWindow button,#editorWindow input,#editorWindow select');
       const before=await page.locator('#map').boundingBox();await page.locator('#toggleProperties').click();
@@ -343,6 +345,9 @@ async function main(){
     await assert.rejects(rpc(alice.id,'mark_stage_tutorial',['invalid']),/Неизвестный/);
     const bobTutorial=await rpc(alice.id,'mark_stage_tutorial',['polygon']);assert.equal(bobTutorial.tutorial_seen.filter(stage=>stage==='polygon').length,1,'Tutorial acknowledgements are idempotent');
     const aliceWS=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(aliceWS.zones.length,4);assert.equal(aliceWS.routes.length,1);
+    const duplicateTransport=structuredClone(aliceWS.zones.find(zone=>zone.kind==='transport'));duplicateTransport.id=randomUUID();duplicateTransport.points=duplicateTransport.points.map(point=>({...point,id:randomUUID()}));
+    await assert.rejects(rpc(alice.id,'save_workspace',[JSON.stringify([...aliceWS.zones,duplicateTransport]),JSON.stringify(aliceWS.routes),JSON.stringify(aliceWS.depth),aliceWS.revision]),/только одна транспортная зона/,'Server rejects duplicate transport zones independently of UI');
+    assert.equal((await asUser(alice.id,'select revision from public.workspaces')).rows[0].revision,aliceWS.revision,'Rejected duplicates do not change saved workspace');
     const savedBoundary=(await asUser(alice.id,'select geometry from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].geometry.points;
     const closeRoute=JSON.stringify({points:points([[180,570],[820,570]])});
     const serverGap=await db.query("select roi_private.route_clearance_ok($1::jsonb,$2::jsonb,$3::jsonb) as ok",[closeRoute,JSON.stringify(savedBoundary),JSON.stringify(aliceWS.zones)]);

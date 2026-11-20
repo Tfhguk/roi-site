@@ -180,6 +180,7 @@ begin
  if profile.registration_status='garage' then profile.registration_status:='zones';
  elsif profile.registration_status in ('zones','routes','ready') then
   select * into ws from public.workspaces where user_id=profile.id;
+  if (select count(*) from jsonb_array_elements(ws.zones) z where z->>'kind'='transport')>1 then raise exception 'В проекте полигона допускается только одна транспортная зона.'; end if;
   foreach kind in array array['warehouse','charging','mining','transport'] loop
    if not exists(select 1 from jsonb_array_elements(ws.zones) z where z->>'kind'=kind) then raise exception 'Создайте все четыре типа зон.'; end if;
   end loop;
@@ -205,7 +206,6 @@ begin
  return profile;
 end $$;
 
-
 revoke all on all functions in schema roi_private from public,anon,authenticated;
 revoke all on function public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int) from public,anon;
 grant execute on function public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int) to authenticated;
@@ -220,5 +220,51 @@ begin
 end $$;
 revoke all on function public.rename_polygon(uuid,text) from public,anon;
 grant execute on function public.rename_polygon(uuid,text) to authenticated;
+
+create or replace function public.save_workspace(p_zones jsonb,p_routes jsonb,p_depth jsonb,p_revision int) returns public.workspaces
+language plpgsql security definer set search_path='' as $$
+declare uid uuid:=auth.uid(); ws public.workspaces; boundary jsonb; zone jsonb; route jsonb; point jsonb; saved_zones jsonb:='[]'; points jsonb; mid int; cols int; rows int; used_refs uuid[]:=array[]::uuid[];
+begin
+ perform 1 from public.profiles where id=uid for update;
+ select * into ws from public.workspaces where user_id=uid for update;
+ if not found then raise exception 'Сначала выберите полигон.'; end if;
+ if p_revision<>ws.revision then raise exception 'Данные изменены в другой вкладке. Обновите страницу перед сохранением.'; end if;
+ if jsonb_typeof(p_zones) is distinct from 'array' or jsonb_typeof(p_routes) is distinct from 'array' then raise exception 'Некорректные зоны или траектории.'; end if;
+ if jsonb_array_length(p_zones)>30 or jsonb_array_length(p_routes)>30 then raise exception 'Максимум 30 зон и 30 траекторий.'; end if;
+ if (select count(*) from jsonb_array_elements(p_zones) z where z->>'kind'='transport')>1 then raise exception 'В проекте полигона допускается только одна транспортная зона.'; end if;
+ cols:=(p_depth->>'cols')::int; rows:=(p_depth->>'rows')::int;
+ if (p_depth->>'version')::int is distinct from 1 or (p_depth->>'width')::int is distinct from 1000 or (p_depth->>'height')::int is distinct from 700 or cols is null or rows is null or cols not between 2 and 100 or rows not between 2 and 100 or jsonb_typeof(p_depth->'cells') is distinct from 'array' then raise exception 'Некорректный формат карты глубины.'; end if;
+ if jsonb_array_length(p_depth->'cells')<>cols*rows or exists(select 1 from jsonb_array_elements(p_depth->'cells') v where v<>'null'::jsonb and (jsonb_typeof(v)<>'number' or not ((v::text)::numeric between 0 and 1000))) then raise exception 'Некорректные значения глубины.'; end if;
+ select geometry->'points' into boundary from public.polygons where id=ws.polygon_id;
+ for zone in select value from jsonb_array_elements(p_zones) loop
+  if zone->>'kind' not in ('warehouse','charging','mining','transport') or zone->>'kind' is null or not roi_private.shape_ok(zone->'points') then raise exception 'Некорректная зона.'; end if;
+  if length(btrim(coalesce(zone->>'name',''))) not between 1 and 100 or not roi_private.path_ok(zone->'points',boundary,null,1000,1000,true) then raise exception 'Зона должна находиться внутри полигона и иметь имя.'; end if;
+  points:='[]';
+  for point in select value from jsonb_array_elements(zone->'points') loop
+   if (point->>'id')::uuid=any(used_refs) then raise exception 'Повторные вершины зон.'; end if;
+   used_refs:=array_append(used_refs,(point->>'id')::uuid);
+  end loop;
+ end loop;
+ -- Release only deleted vertices; retained vertices keep their printed IDs.
+ delete from public.marker_reservations where polygon_id=ws.polygon_id and owner_id=uid and purpose='zone' and not(reference_id=any(used_refs));
+ for zone in select value from jsonb_array_elements(p_zones) loop
+  points:='[]';
+  for point in select value from jsonb_array_elements(zone->'points') loop
+   mid:=roi_private.allocate_marker(ws.polygon_id,uid,'zone',(point->>'id')::uuid);
+   points:=points||jsonb_build_array(jsonb_build_object('id',(point->>'id')::uuid,'x',(point->>'x')::float8,'y',(point->>'y')::float8,'markerId',mid));
+  end loop;
+  saved_zones:=saved_zones||jsonb_build_array(jsonb_build_object('id',(zone->>'id')::uuid,'kind',zone->>'kind','name',zone->>'name','points',points));
+ end loop;
+ for route in select value from jsonb_array_elements(p_routes) loop
+  if not roi_private.shape_ok(route->'points',false) or length(btrim(coalesce(route->>'name',''))) not between 1 and 100 then raise exception 'Некорректная траектория.'; end if;
+  if not exists(select 1 from public.equipment where id=(route->>'equipmentId')::uuid and user_id=uid and polygon_id=ws.polygon_id) then raise exception 'Выберите свою технику для каждой траектории.'; end if;
+  if (route->>'maxDepth')::numeric is null or (route->>'maxSlope')::numeric is null or (route->>'maxDepth')::numeric not between 0 and 1000 or (route->>'maxSlope')::numeric not between 0 and 1000 then raise exception 'Некорректные ограничения глубины.'; end if;
+ end loop;
+ update public.workspaces set zones=saved_zones,routes=p_routes,depth=p_depth,revision=revision+1,updated_at=now() where user_id=uid returning * into ws;
+ -- Saving edited geometry requires rechecking routes before marking ready.
+ update public.profiles set registration_status=case when registration_status='ready' then 'routes' else registration_status end where id=uid;
+ return ws;
+end $$;
+
 
 commit;

@@ -307,6 +307,7 @@ begin
  if p_revision<>ws.revision then raise exception 'Данные изменены в другой вкладке. Обновите страницу перед сохранением.'; end if;
  if jsonb_typeof(p_zones) is distinct from 'array' or jsonb_typeof(p_routes) is distinct from 'array' then raise exception 'Некорректные зоны или траектории.'; end if;
  if jsonb_array_length(p_zones)>30 or jsonb_array_length(p_routes)>30 then raise exception 'Максимум 30 зон и 30 траекторий.'; end if;
+ if (select count(*) from jsonb_array_elements(p_zones) z where z->>'kind'='transport')>1 then raise exception 'В проекте полигона допускается только одна транспортная зона.'; end if;
  cols:=(p_depth->>'cols')::int; rows:=(p_depth->>'rows')::int;
  if (p_depth->>'version')::int is distinct from 1 or (p_depth->>'width')::int is distinct from 1000 or (p_depth->>'height')::int is distinct from 700 or cols is null or rows is null or cols not between 2 and 100 or rows not between 2 and 100 or jsonb_typeof(p_depth->'cells') is distinct from 'array' then raise exception 'Некорректный формат карты глубины.'; end if;
  if jsonb_array_length(p_depth->'cells')<>cols*rows or exists(select 1 from jsonb_array_elements(p_depth->'cells') v where v<>'null'::jsonb and (jsonb_typeof(v)<>'number' or not ((v::text)::numeric between 0 and 1000))) then raise exception 'Некорректные значения глубины.'; end if;
@@ -467,6 +468,7 @@ begin
  if profile.registration_status='garage' then profile.registration_status:='zones';
  elsif profile.registration_status in ('zones','routes','ready') then
   select * into ws from public.workspaces where user_id=profile.id;
+  if (select count(*) from jsonb_array_elements(ws.zones) z where z->>'kind'='transport')>1 then raise exception 'В проекте полигона допускается только одна транспортная зона.'; end if;
   foreach kind in array array['warehouse','charging','mining','transport'] loop
    if not exists(select 1 from jsonb_array_elements(ws.zones) z where z->>'kind'=kind) then raise exception 'Создайте все четыре типа зон.'; end if;
   end loop;

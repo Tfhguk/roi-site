@@ -169,6 +169,9 @@
     $("polygonNameLabel").hidden=step!=="polygon";
     $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
     $("zoneKindLabel").hidden=step!=="zones";$("newShape").hidden=!["zones","routes"].includes(step);
+    const hasTransport=ws.zones.some(zone=>zone.kind==="transport");
+    $("zoneKind").querySelector('option[value="transport"]').disabled=hasTransport;
+    if(hasTransport&&$("zoneKind").value==="transport"&&!draft)$("zoneKind").value="warehouse";
     $("newShape").textContent=step==="zones"?"Новая зона":"Новая траектория";
     $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=Boolean(selectedId)||!draft||draft.points.length<3;
     $("clearShape").disabled=!editable();$("deleteVertex").disabled=!editable()||selectedVertex<0;
@@ -460,10 +463,11 @@
   document.addEventListener("keydown",event=>{if(!contextMenu.hidden&&event.key==="Escape"){event.preventDefault();event.stopImmediatePropagation();hideMapMenu();$("map").focus({preventScroll:true});}},true);
   window.addEventListener("resize",hideMapMenu);
   $("clearShape").onclick=()=>{if(!editable())return;snapshot();draft.points=[];draft.closed=false;selectedVertex=-1;changed();render();};
-  $("newShape").onclick=()=>{if(draft)return notice("Сначала сохраните текущую фигуру в проект.",true);snapshot();draft={id:uid(),name:step==="zones"?kinds[$("zoneKind").value]:"Траектория "+(ws.routes.length+1),kind:$("zoneKind").value,points:[],closed:false,equipmentId:ownEquipment()[0]?.id,maxDepth:5,maxSlope:2};selectedVertex=-1;$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");render();};
+  $("newShape").onclick=()=>{if(draft)return notice("Сначала сохраните текущую фигуру в проект.",true);if(step==="zones"&&$("zoneKind").value==="transport"&&ws.zones.some(zone=>zone.kind==="transport"))return notice("Транспортная зона уже создана. Измените её через «Зоны и точки».",true);snapshot();draft={id:uid(),name:step==="zones"?kinds[$("zoneKind").value]:"Траектория "+(ws.routes.length+1),kind:$("zoneKind").value,points:[],closed:false,equipmentId:ownEquipment()[0]?.id,maxDepth:5,maxSlope:2};selectedVertex=-1;$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");render();};
   function applyDraft(){
     if(!draft||step==="polygon")return;
     const closed=step==="zones";
+    if(closed&&draft.kind==="transport"&&ws.zones.some((zone,index)=>zone.kind==="transport"&&index!==draft.index))throw Error("В проекте полигона допускается только одна транспортная зона. Измените существующую.");
     if(!G.validPoints(draft.points,closed))throw Error(closed?"Нужно не менее трёх вершин без самопересечений.":"Нужно не менее двух разных точек без самопересечений.");
     if(closed&&!G.inPolygon(draft.points,boundary()))throw Error("Зона должна целиком находиться внутри полигона.");
     if(closed&&draft.kind!=="transport"&&drivingAreas().length&&!G.inAreas(draft.points,drivingAreas(),true))throw Error("Склад, зарядная станция и добыча должны находиться внутри транспортной зоны.");

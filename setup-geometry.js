@@ -61,6 +61,7 @@
   }
   function zoneErrors(zones,polygon){
     const areas=zones.filter(z=>z.kind==="transport").map(z=>z.points),errors=[];
+    if(areas.length>1)return ["В проекте полигона допускается только одна транспортная зона. Удалите лишнюю или измените существующую."];
     if(!areas.length)return ["Нарисуйте транспортную зону — область, внутри которой разрешено движение техники."];
     for(const zone of zones)if(zone.kind!=="transport"&&(!inPolygon(zone.points,polygon)||!inAreas(zone.points,areas,true)))errors.push("Зона «"+zone.name+"» должна целиком находиться в транспортной зоне.");
     return errors;
