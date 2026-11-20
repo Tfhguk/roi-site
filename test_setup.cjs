@@ -109,10 +109,13 @@ async function main(){
   geometryTests();
   const db=new PGlite();
   await db.exec("create schema auth;create role anon;create role authenticated;create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}');create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth,public to authenticated;grant execute on function auth.uid() to authenticated;");
-  await db.exec(fs.readFileSync(path.join(root,'supabase/schema.sql'),'utf8'));
+  await db.exec(fs.readFileSync(path.join(root,'supabase/schema.sql'),'utf8').split('-- Polygon zone presets (kept in sync with polygon-presets.sql).')[0]);
   const legacyUser=randomUUID(),legacyPolygon=randomUUID(),legacyEquipment=randomUUID();
   await db.query('insert into auth.users(id) values($1)',[legacyUser]);
   await db.query("insert into public.polygons(id,owner_id,name,geometry) values($1,$2,'Legacy fixture','{}')",[legacyPolygon,legacyUser]);
+  const legacyDepth=G.emptyDepth();legacyDepth.cells[0]=17;
+  await db.query('insert into public.workspaces(user_id,polygon_id,depth,revision) values($1,$2,$3,11)',[legacyUser,legacyPolygon,JSON.stringify(legacyDepth)]);
+  await db.query("update public.profiles set polygon_id=$1,registration_status='zones' where id=$2",[legacyPolygon,legacyUser]);
   await db.exec("alter table public.equipment drop constraint equipment_type_check;alter table public.equipment add constraint equipment_type_check check(type in ('truck','excavator','loader','robot'));");
   await db.query("insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values($1,$2,$3,'Existing custom name','excavator',49)",[legacyEquipment,legacyUser,legacyPolygon]);
   const legacyStation=randomUUID();await db.query("insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values($1,$2,$3,'Station name','robot',48)",[legacyStation,legacyUser,legacyPolygon]);
@@ -120,6 +123,8 @@ async function main(){
   await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
   const converted=(await db.query('select * from public.equipment where id=$1',[legacyEquipment])).rows[0];assert.equal(converted.type,'bulldozer');assert.equal(converted.marker_id,49);assert.equal(converted.name,'Existing custom name');
   const station=(await db.query('select * from public.equipment where id=$1',[legacyStation])).rows[0];assert.equal(station.type,'charging_station');assert.equal(station.marker_id,48);assert.equal(station.name,'Station name');
+  const preserved=(await db.query('select * from public.workspaces where user_id=$1',[legacyUser])).rows[0];assert.deepEqual(preserved.depth,legacyDepth);assert.equal(preserved.revision,11);assert.equal(preserved.registration_status,'zones','Migrating an existing project preserves data and progress');
+  await db.query('delete from public.workspaces where user_id=$1',[legacyUser]);await db.query('update public.profiles set polygon_id=null where id=$1',[legacyUser]);
   await db.query('delete from public.equipment where id=$1',[legacyStation]);
   await db.query('delete from public.equipment where id=$1',[legacyEquipment]);await db.query('delete from public.polygons where id=$1',[legacyPolygon]);await db.query('delete from auth.users where id=$1',[legacyUser]);
   const accounts=new Map(),tokens=new Map();
@@ -128,7 +133,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],get_workspace:[],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name'],update_polygon:['p_id','p_name','p_points','p_previous'],delete_polygon_preset:['p_id']};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],open_polygon:['p_polygon','p_reload'],save_polygon_workspace:['p_polygon','p_zones','p_routes','p_depth','p_revision'],get_workspace:[],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],create_polygon_equipment:['p_polygon','p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name'],update_polygon:['p_id','p_name','p_points','p_previous'],delete_polygon_preset:['p_id']};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -160,7 +165,7 @@ async function main(){
           const result=await rpc(account.id,name,params.map(p=>body[p]!==null&&typeof body[p]==='object'?JSON.stringify(body[p]):body[p]));
           return json(response,200,[result]);
         }
-        if(['profiles','polygons','equipment','workspaces','marker_reservations'].includes(table))return json(response,200,(await asUser(account.id,'select * from public.'+table+' order by 1')).rows);
+        if(['profiles','polygons','equipment','workspaces','marker_reservations'].includes(table)){let rows=(await asUser(account.id,'select * from public.'+table+' order by 1')).rows;for(const [key,value] of url.searchParams)if(value.startsWith('eq.')&&['id','polygon_id','user_id'].includes(key))rows=rows.filter(row=>String(row[key])===value.slice(3));return json(response,200,rows);}
         return json(response,404,{});
       }
       if(!url.pathname.startsWith('/roi-site/')){response.writeHead(404);return response.end();}
@@ -192,16 +197,13 @@ async function main(){
       await page.addLocatorHandler(page.locator('#stageTutorial[open]'),async()=>{await page.locator('#tutorialContinue').click();});
     }
     async function checkEditorViewport(){
-      await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions'),wide=matchMedia('(min-width:1100px) and (min-height:600px)').matches,tools=rect('drawingTools');return (!wide||!tools.width||tools.right<=map.left+1)&&map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&(wide?windowBox.right<=nav.left&&nav.bottom<=actions.top:nav.bottom<=windowBox.top)&&[windowBox,map,actions].every(box=>box.top>=0&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
-      const layout=await page.evaluate(()=>{const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};};return {nav:rect('steps'),window:rect('editorWindow'),map:rect('map'),actions:rect('actions'),height:innerHeight,width:innerWidth,overflow:getComputedStyle(document.body).overflow};});
-      assert.equal(layout.overflow,'hidden');
-      const wide=layout.width>=1100&&layout.height>=600;
-      assert(wide?layout.window.right<=layout.nav.left&&layout.nav.bottom<=layout.actions.top:layout.nav.bottom<=layout.window.top,JSON.stringify(layout));
-      for(const box of [layout.window,layout.map,layout.actions])assert(box.top>=(wide?0:layout.nav.bottom)&&box.bottom<=layout.height&&box.left>=0&&box.right<=layout.width,JSON.stringify(layout));
-      if(wide&&await page.locator('#drawingTools').isVisible()){
-        const tools=await page.locator('#drawingTools').boundingBox();assert(tools.x+tools.width<=layout.map.left+1,'Drawing tools stay to the left of the field');
-        assert(await page.locator('#drawingTools').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Drawing tools fit without clipping');
-      }
+      const layout=await(await page.waitForFunction(()=>{
+        const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height};};
+        const map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions'),tools=rect('drawingTools'),wide=matchMedia('(min-width:1100px) and (min-height:600px)').matches;
+        const valid=(!wide||!tools.width||tools.right<=map.left+1)&&map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&(wide?windowBox.right<=nav.left&&nav.bottom<=actions.top:nav.bottom<=windowBox.top)&&[windowBox,map,actions].every(box=>box.top>=0&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);
+        return valid?{overflow:getComputedStyle(document.body).overflow,toolsFit:!tools.width||document.getElementById('drawingTools').scrollHeight<=document.getElementById('drawingTools').clientHeight+1}:false;
+      })).jsonValue();
+      assert.equal(layout.overflow,'hidden');assert(layout.toolsFit,'Drawing tools fit without clipping');
       await page.mouse.wheel(0,700);assert.equal(await page.evaluate(()=>scrollY),0,'Drawing never needs page scrolling');
     }
     async function clickAt(x,y){const bounds=await page.locator('#map').boundingBox();await page.locator('#map').click({position:{x:x*bounds.width/1000,y:y*bounds.height/700}});}
@@ -475,6 +477,34 @@ async function main(){
     assert.deepEqual(afterPause.routes,beforePause.routes,'Pausing leaves saved routes intact');
     assert.deepEqual(afterPause.depth,beforePause.depth,'Pausing leaves saved depth intact');
     assert.deepEqual(errors,[]);
+    const secondOwned=await rpc(alice.id,'create_polygon',['Second personal polygon',JSON.stringify(points([[0,0],[1000,0],[1000,700],[0,700]]))]);
+    await page.goto(base+'/roi-site/setup.html?step=polygon');await page.locator('#closeEditor').click();
+    assert.equal(await page.locator('#projectList .polygon-project').count(),1,'Saved polygon projects are listed');
+    await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.locator('#editorWindow').waitFor({state:'visible'});
+    const workspaceDownload=page.waitForEvent('download');await page.locator('#downloadMenu summary').click();await page.locator('#exportWorkspace').click();
+    const workspaceFile=path.join(output,'selected-polygon.json');await(await workspaceDownload).saveAs(workspaceFile);
+    const selectedExport=JSON.parse(fs.readFileSync(workspaceFile,'utf8'));assert.equal(selectedExport.polygon.id,secondOwned.id);assert.deepEqual(selectedExport.equipment,[]);assert.deepEqual(selectedExport.zones,[],'Preview export never includes another polygon zones');
+    await page.evaluate(()=>{window.originalExport=SetupExport;window.SetupExport={...SetupExport,markerPDF:markers=>{window.exportedMarkers=markers;}};});
+    await page.locator('#downloadMenu summary').click();await page.locator('#exportMarkers').click();
+    assert.equal((await page.evaluate(()=>window.exportedMarkers)).length,4,'Marker PDF uses only the selected polygon');
+    await page.evaluate(()=>{window.SetupExport=window.originalExport;});
+    await page.locator('#next').click();await page.locator('#garage').waitFor({state:'visible'});
+    assert.equal(await page.locator('.equipment-card').count(),0,'Each polygon starts with its own empty garage');
+    await page.locator('#equipmentName').fill('Second polygon truck');await page.locator('#equipmentMarkerId').fill(String(aliceEquipment[0].marker_id));await page.locator('#equipmentForm button[type=submit]').click();await page.locator('.equipment-card').waitFor();
+    assert.equal((await asUser(alice.id,'select marker_id from public.equipment where polygon_id=$1',[secondOwned.id])).rows[0].marker_id,aliceEquipment[0].marker_id,'Different polygons can reuse the same equipment ID');
+    await page.locator('#steps button').first().click();await page.locator('#closeEditor').click();
+    assert.equal(await page.locator('#projectList .polygon-project').count(),2);
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1100,height:600},{width:1400,height:900}]){
+      await page.setViewportSize(viewport);await page.waitForFunction(()=>document.querySelectorAll('#projectList .polygon-project').length===(innerHeight<=500?1:2));
+      await checkControlsFit('#polygonTools button,#polygonTools select,#actions button');
+    }
+    await page.locator('.polygon-project[data-polygon-id="'+aliceProfile.polygon_id+'"] button').click();await page.locator('#garage').waitFor({state:'visible'});
+    const restoredPersonal=await rpc(alice.id,'get_workspace',[]);
+    assert.deepEqual(restoredPersonal.zones,afterPause.zones);assert.deepEqual(restoredPersonal.depth,afterPause.depth);assert.deepEqual(restoredPersonal.routes,afterPause.routes,'Returning restores the complete personal polygon project');
+    assert.equal((await asUser(alice.id,'select * from public.profiles')).rows[0].polygon_id,aliceProfile.polygon_id);
+    const secondTruck=(await asUser(alice.id,'select id from public.equipment where polygon_id=$1',[secondOwned.id])).rows[0];await rpc(alice.id,'delete_equipment',[secondTruck.id]);
+    assert.equal((await asUser(alice.id,'select * from public.profiles')).rows[0].registration_status,restoredPersonal.registration_status,'Deleting equipment in another polygon leaves active progress alone');
+    await db.query('delete from public.workspaces where user_id=$1 and polygon_id=$2',[alice.id,secondOwned.id]);await db.query('delete from public.polygons where id=$1',[secondOwned.id]);
     // A preset survives its owner leaving; an initially empty account can load a later publication.
     const presetOwner=randomUUID(),presetGuest=randomUUID();
     for(const id of [presetOwner,presetGuest])await db.query('insert into auth.users(id) values($1)',[id]);
@@ -518,12 +548,33 @@ async function main(){
     guestFixture=await rpc(presetGuest,'get_workspace',[]);
     assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Switching polygons loads the selected owner preset');
     assert.deepEqual((await asUser(presetGuest,'select * from public.equipment')).rows,[guestMachine],'Polygon changes preserve personal equipment');
+    const privateZones=structuredClone(guestFixture.zones);privateZones[0].name='Persistent private warehouse';
+    const privateDepth=structuredClone(guestFixture.depth);privateDepth.cells[0]=7;
+    guestFixture=await rpc(presetGuest,'save_workspace',[JSON.stringify(privateZones),'[]',JSON.stringify(privateDepth),guestFixture.revision]);
+    await rpc(presetGuest,'advance_setup',[]);
+    const privateSnapshot=await rpc(presetGuest,'get_workspace',[]);
+    await rpc(presetGuest,'select_polygon',[otherPolygon.id]);
+    const otherMachine=await rpc(presetGuest,'create_equipment_with_id',['Other polygon truck','truck',guestMachine.marker_id]);assert.equal(otherMachine.marker_id,guestMachine.marker_id);
+    let otherWorkspace=await rpc(presetGuest,'get_workspace',[]);const otherDepth=structuredClone(otherWorkspace.depth);otherDepth.cells[0]=42;
+    otherWorkspace=await rpc(presetGuest,'save_workspace',['[]','[]',JSON.stringify(otherDepth),otherWorkspace.revision]);
+    await rpc(presetGuest,'select_polygon',[presetPolygon.id]);guestFixture=await rpc(presetGuest,'get_workspace',[]);
+    assert.deepEqual(guestFixture.zones,privateSnapshot.zones,'Returning preserves private zones and their printed IDs');assert.deepEqual(guestFixture.depth,privateSnapshot.depth);
+    assert.equal((await asUser(presetGuest,'select * from public.profiles')).rows[0].registration_status,'zones','Each project restores its own setup progress');
+    assert.equal((await asUser(presetGuest,'select * from public.workspaces')).rows.length,2,'Both private workspaces remain in the database');
+    assert.deepEqual((await asUser(presetGuest,'select depth from public.workspaces where polygon_id=$1',[otherPolygon.id])).rows[0].depth,otherDepth);
+    await assert.rejects(rpc(presetGuest,'save_workspace',[JSON.stringify(privateSnapshot.zones),'[]',JSON.stringify(privateDepth),privateSnapshot.revision]),/другой вкладке/,'Returning invalidates old-tab revisions');
+    await assert.rejects(rpc(presetGuest,'save_polygon_workspace',[otherPolygon.id,'[]','[]',JSON.stringify(otherDepth),guestFixture.revision]),/Активный полигон/);
+    await assert.rejects(rpc(presetGuest,'create_polygon_equipment',[otherPolygon.id,'Wrong polygon','truck',null]),/Активный полигон/);
+    await rpc(presetGuest,'delete_equipment',[otherMachine.id]);assert.equal((await asUser(presetGuest,'select * from public.profiles')).rows[0].registration_status,'zones');
+    await rpc(presetGuest,'open_polygon',[presetPolygon.id,true]);guestFixture=await rpc(presetGuest,'get_workspace',[]);
+    assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Explicit reload replaces private zones without changing the garage');
     guestFixture=await rpc(presetGuest,'save_workspace',['[]','[]',JSON.stringify(guestFixture.depth),guestFixture.revision]);
     assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'An intentionally saved empty project stays empty');
     await db.exec(fs.readFileSync(path.join(root,'supabase/polygon-presets.sql'),'utf8'));
     assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'Repeating the migration keeps private edits');
     await rpc(presetOwner,'delete_polygon_preset',[presetPolygon.id]);
-    await assert.rejects(rpc(presetGuest,'select_polygon',[presetPolygon.id]),/удалён/);
+    await assert.rejects(rpc(presetGuest,'open_polygon',[presetPolygon.id,true]),/удалён/);
+    await rpc(presetGuest,'select_polygon',[otherPolygon.id]);await rpc(presetGuest,'select_polygon',[presetPolygon.id]);
     assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'Deleting a preset preserves a previously loaded workspace');
     assert.deepEqual((await asUser(presetGuest,'select * from public.equipment')).rows,[guestMachine],'Deleting a preset keeps personal equipment');
     for(const table of ['workspaces','equipment','profiles'])await db.query('delete from public.'+table+' where '+(table==='profiles'?'id':'user_id')+'=any($1::uuid[])',[[presetOwner,presetGuest]]);

@@ -71,10 +71,12 @@
   global.AppCloud = Object.freeze({ configured, routesEnabled, session, profile, me, signIn, signUp, logout, request, rpc, labels,
     async polygons() { return request("/rest/v1/polygons?select=*&order=created_at.desc"); },
     async equipment() { return request("/rest/v1/equipment?select=*&order=created_at.asc"); },
+    async projects() { return request("/rest/v1/workspaces?select=polygon_id,registration_status,updated_at&order=updated_at.desc"); },
+    async projectWorkspace(id) { const rows=await request("/rest/v1/workspaces?polygon_id=eq."+encodeURIComponent(id)+"&select=*");return rows?.[0]||null; },
     async markerReservations(polygonId) { return request("/rest/v1/marker_reservations?polygon_id=eq."+encodeURIComponent(polygonId)+"&select=marker_id"); },
     async workspace() { const value=await rpc("get_workspace",{});return value?.user_id?value:null; },
     async advance() { const value = await rpc("advance_setup", {}); return cache(value); },
-    async selectPolygon(id) { const value = await rpc("select_polygon", { p_polygon: id }); return cache(value); },
-    async saveWorkspace(value) { return rpc("save_workspace", { p_zones: value.zones, p_routes: value.routes, p_depth: value.depth, p_revision: value.revision }); }
+    async selectPolygon(id, reload = false) { const value = await rpc("open_polygon", { p_polygon: id, p_reload: reload }); return cache(value); },
+    async saveWorkspace(value) { return rpc("save_polygon_workspace", { p_polygon: value.polygon_id, p_zones: value.zones, p_routes: value.routes, p_depth: value.depth, p_revision: value.revision }); }
   });
 })(globalThis);
