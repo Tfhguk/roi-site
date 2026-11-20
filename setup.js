@@ -11,6 +11,13 @@
   let reservations=[],garagePage=0,garageCreating=false,propertiesPane="shapes";
   let garageFocusId=null;
   const pages={shapes:0,vertices:0};
+  let tutorialStage=null,tutorialSaving=false,tutorialReturnFocus=null;
+  const tutorials={
+    polygon:{title:"Выберите площадку для работы",intro:"Полигон — внешняя граница всей площадки. Каждая его вершина получает свою метку.",steps:["Выберите готовый полигон в списке или нажмите «Новый полигон» и задайте название.","Кликами обведите границу. Точки можно двигать; нажатие на ребро добавляет вершину. Для правки готового полигона создайте копию.","Нажмите «Замкнуть границу», затем «Далее». Сохранённый полигон будет доступен другим пользователям."]},
+    garage:{title:"Добавьте свою технику",intro:"В гараже хранятся только ваши машины. ID связывает машину с напечатанной меткой.",steps:["Нажмите «Добавить технику». Укажите название и тип машины.","Выберите свободный ID от 0 до 49 или оставьте поле пустым. Номера границ, зон и другой техники этого полигона уже заняты.","Добавьте машину, скачайте её метку и закрепите на машине. ID можно изменить в карточке; после смены распечатайте новую метку. Затем нажмите «Далее»."]},
+    zones:{title:"Отметьте места работы техники",intro:"Все рабочие зоны должны находиться внутри транспортной зоны — области, где разрешено движение.",steps:["Выберите тип «Транспортная зона», нажмите «Новая зона» и обведите всю доступную для движения площадку.","Задайте имя и нажмите «Сохранить фигуру в проект». Таким же способом создайте внутри неё склад, зарядную станцию и зону добычи.","Двигайте точки или добавляйте их нажатием на ребро. Список зон доступен в «Зоны и точки». Сохраните на сервере и перейдите на главную."]},
+    routes:{title:"Постройте и проверьте пути",intro:"Траектории учитывают транспортную область, глубины, перепады и отступы от меток.",steps:["Выберите ограничения и нажмите «Построить автоматически». Для теста можно сгенерировать карту глубины.","Наведите курсор на карточку машины или нажмите её, чтобы увидеть точки её путей. Кнопка «Изменить» позволяет передвигать точки.","Исправьте недопустимые участки, сохраните изменения и нажмите «Завершить настройку»."]}
+  };
   document.querySelector("main").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
   function notice(text,error=false){
@@ -57,6 +64,7 @@
   new ResizeObserver(fitStage).observe($("canvasFit"));
   new ResizeObserver(()=>document.documentElement.style.setProperty("--actions-height",$("actions").getBoundingClientRect().height+"px")).observe($("actions"));
   document.addEventListener("keydown",event=>{
+    if($("stageTutorial").open)return;
     if($("editorWindow").hidden)return;
     if(event.key==="Escape"){event.preventDefault();closeEditor();return;}
     if(event.key!=="Tab")return;
@@ -81,6 +89,41 @@
   function newPoint(p){return {id:uid(),x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10};}
   function editable(){return draft && !(step==="polygon"&&selectedId);}
   function allMarkers(){return [...(currentPolygon()?.geometry.points||[]),...(ws?.zones||[]).flatMap(z=>z.points),...ownEquipment().map(e=>({markerId:e.marker_id}))].filter(p=>Number.isInteger(p.markerId));}
+  function tutorialPicture(stage){
+    const start='<svg viewBox="0 0 480 260" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="tutorialGrid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#334155"/></pattern></defs><rect width="480" height="260" rx="14" fill="#101e31"/><rect width="480" height="260" fill="url(#tutorialGrid)"/>';
+    const outline='<path class="tutorial-outline" d="M65 205L90 55L390 45L420 205Z" fill="#38bdf814" stroke="#38bdf8" stroke-width="4"/>';
+    const points=[[65,205],[90,55],[390,45],[420,205]].map(([x,y],i)=>'<circle class="tutorial-dot dot-'+i+'" cx="'+x+'" cy="'+y+'" r="7" fill="#38bdf8" stroke="#e2e8f0" stroke-width="2"/>').join('');
+    let drawing;
+    if(stage==='polygon')drawing=outline+points+'<circle class="tutorial-cursor" r="12" fill="#fff" fill-opacity=".7"/><text x="120" y="240">Обведите границу точками</text>';
+    else if(stage==='garage')drawing='<g class="tutorial-machine"><rect x="50" y="55" width="380" height="150" rx="12" fill="#1e293b" stroke="#64748b"/><path d="M80 120h65v-30h35l25 40v30H80Z" fill="#38bdf8"/><circle cx="105" cy="166" r="14" fill="#0f172a" stroke="#cbd5e1"/><circle cx="180" cy="166" r="14" fill="#0f172a" stroke="#cbd5e1"/><text x="235" y="95">Самосвал</text><rect class="tutorial-id" x="235" y="112" width="160" height="42" rx="7" fill="#164e63" stroke="#38bdf8"/><text x="255" y="140">ID 5 — свободен</text><text x="235" y="184">Добавить технику</text></g>';
+    else if(stage==='zones')drawing=outline+'<g class="tutorial-zone z-1"><rect x="105" y="85" width="95" height="75" rx="4" fill="#c4b5fd66" stroke="#c4b5fd"/><text x="119" y="127">Склад</text></g><g class="tutorial-zone z-2"><rect x="220" y="85" width="75" height="75" rx="4" fill="#4ade8066" stroke="#4ade80"/><text x="225" y="127">Зарядка</text></g><g class="tutorial-zone z-3"><rect x="315" y="85" width="75" height="75" rx="4" fill="#fb923c66" stroke="#fb923c"/><text x="320" y="127">Добыча</text></g><text x="110" y="240">Внутри области движения</text>';
+    else drawing=outline+'<rect x="105" y="90" width="65" height="70" fill="#c4b5fd55"/><rect x="330" y="90" width="65" height="70" fill="#fb923c55"/><path class="tutorial-outline" d="M138 125L210 175L285 175L362 125" fill="none" stroke="#4ade80" stroke-width="5"/><circle class="tutorial-traveller" r="9" fill="#fbbf24"/><text x="125" y="240">Путь можно редактировать</text>';
+    return start+drawing+'</svg>';
+  }
+  function showTutorial(manual=false){
+    if(!profile||!tutorials[step]||step==="routes"&&!AppCloud.routesEnabled)return;
+    if(!manual&&(profile.registration_status==="ready"||(profile.tutorial_seen||[]).includes(step)))return;
+    if($("stageTutorial").open)return;
+    tutorialStage=step;tutorialReturnFocus=document.activeElement;
+    $("tutorialError").hidden=true;
+    const data=tutorials[step];$("tutorialTitle").textContent=data.title;$("tutorialIntro").textContent=data.intro;
+    $("tutorialStage").textContent="Этап "+(stages.indexOf(step)+1)+" · "+({polygon:"Полигон",garage:"Гараж",zones:"Зоны",routes:"Траектории"})[step];
+    $("tutorialSteps").replaceChildren(...data.steps.map(text=>{const item=document.createElement("li");item.textContent=text;return item;}));
+    $("tutorialAnimation").innerHTML=tutorialPicture(step);
+    $("stageTutorial").showModal();
+  }
+  async function finishTutorial(){
+    if(tutorialSaving)return;tutorialSaving=true;
+    for(const id of ["tutorialContinue","tutorialClose"])$(id).disabled=true;
+    try{
+      if(!(profile.tutorial_seen||[]).includes(tutorialStage))profile=await AppCloud.rpc("mark_stage_tutorial",{p_stage:tutorialStage});
+      $("stageTutorial").close();if(tutorialReturnFocus?.isConnected)tutorialReturnFocus.focus({preventScroll:true});
+    }catch(error){$("tutorialError").textContent=error.message;$("tutorialError").hidden=false;}
+    finally{tutorialSaving=false;for(const id of ["tutorialContinue","tutorialClose"])$(id).disabled=false;}
+  }
+  $("openTutorial").onclick=()=>showTutorial(true);
+  $("tutorialContinue").onclick=finishTutorial;$("tutorialClose").onclick=finishTutorial;
+  $("stageTutorial").addEventListener("cancel",event=>{event.preventDefault();finishTutorial();});
   function activate(target){
     if(!permitted(target))return;
     if(dirty&&target!==step){notice("Сначала сохраните фигуру в проект и изменения на сервере.",true);return;}
@@ -98,6 +141,7 @@
     notice("");render();
     if(step!=="garage"&&(step!=="polygon"||selectedId))openEditor();
     if(step==="routes"&&!ws.routes.length){try{createAutoRoutes(ws.depth.cells.every(v=>v===0));}catch(error){notice(error.message,true);}}
+    showTutorial();
   }
   // Do not use innerHTML for user-supplied names.
   function button(text,action,classes=""){const el=document.createElement("button");el.type="button";el.textContent=text;el.className=classes;el.onclick=()=>run(action);return el;}

@@ -1,4 +1,17 @@
 begin;
+alter table public.profiles add column if not exists tutorial_seen text[] not null default '{}';
+create or replace function public.mark_stage_tutorial(p_stage text) returns public.profiles
+language plpgsql security definer set search_path='' as $$
+declare result public.profiles;
+begin
+ if p_stage is null or p_stage not in ('polygon','garage','zones','routes') then raise exception 'Неизвестный этап обучения.'; end if;
+ update public.profiles set tutorial_seen=case when p_stage=any(tutorial_seen) then tutorial_seen else array_append(tutorial_seen,p_stage) end where id=auth.uid() returning * into result;
+ if result.id is null then raise exception 'Войдите в аккаунт.'; end if;
+ return result;
+end $$;
+revoke all on function public.mark_stage_tutorial(text) from public,anon;
+grant execute on function public.mark_stage_tutorial(text) to authenticated;
+
 alter table public.equipment drop constraint if exists equipment_type_check;
 update public.equipment set type='bulldozer' where type='excavator';
 alter table public.equipment add constraint equipment_type_check check(type in ('truck','bulldozer','loader','robot'));

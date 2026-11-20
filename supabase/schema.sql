@@ -126,6 +126,19 @@ create table if not exists public.profiles (
  registration_status text not null default 'polygon' check(registration_status in ('polygon','garage','zones','routes','ready')),
  polygon_id uuid references public.polygons(id), created_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists tutorial_seen text[] not null default '{}';
+create or replace function public.mark_stage_tutorial(p_stage text) returns public.profiles
+language plpgsql security definer set search_path='' as $$
+declare result public.profiles;
+begin
+ if p_stage is null or p_stage not in ('polygon','garage','zones','routes') then raise exception 'Неизвестный этап обучения.'; end if;
+ update public.profiles set tutorial_seen=case when p_stage=any(tutorial_seen) then tutorial_seen else array_append(tutorial_seen,p_stage) end where id=auth.uid() returning * into result;
+ if result.id is null then raise exception 'Войдите в аккаунт.'; end if;
+ return result;
+end $$;
+revoke all on function public.mark_stage_tutorial(text) from public,anon;
+grant execute on function public.mark_stage_tutorial(text) to authenticated;
+
 create table if not exists public.equipment (
  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
  polygon_id uuid not null references public.polygons(id), name text not null check(length(btrim(name)) between 1 and 100),

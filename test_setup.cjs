@@ -121,7 +121,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[]};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage']};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -170,7 +170,20 @@ async function main(){
     browser=await chromium.launch({channel:process.env.TEST_BROWSER_CHANNEL||'msedge',headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
     const context=await browser.newContext({viewport:{width:1400,height:1100},acceptDownloads:true});
     const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
-    async function register(page,email,name){await page.goto(base+'/roi-site/');await page.locator('#tabRegister').click();await page.locator('#regLogin').fill(email);await page.locator('#regName').fill(name);await page.locator('#regPass').fill('test-password-123');await page.locator('#regPass2').fill('test-password-123');await page.locator('#registerForm button[type=submit]').click();await page.waitForURL('**/setup.html');await page.waitForFunction(()=>!document.getElementById('polygonTools').hidden);}
+    async function register(page,email,name){
+      await page.goto(base+'/roi-site/');await page.locator('#tabRegister').click();await page.locator('#regLogin').fill(email);await page.locator('#regName').fill(name);await page.locator('#regPass').fill('test-password-123');await page.locator('#regPass2').fill('test-password-123');await page.locator('#registerForm button[type=submit]').click();await page.waitForURL('**/setup.html');await page.waitForFunction(()=>!document.getElementById('polygonTools').hidden);
+      await page.locator('#stageTutorial[open]').waitFor();assert.equal(await page.locator('#tutorialAnimation svg').count(),1);
+      await page.locator('#tutorialContinue').click();await page.locator('#stageTutorial').waitFor({state:'hidden'});
+      await page.reload();await page.waitForFunction(()=>!document.querySelector('main').inert);assert.equal(await page.locator('#stageTutorial').isVisible(),false,'Acknowledged stage does not reopen after reload');
+      await page.locator('#openTutorial').click();assert(await page.locator('#stageTutorial').isVisible(),'Footer can replay the stage tutorial');
+      if(name==='Alice')for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
+        await page.setViewportSize(viewport);const box=await page.locator('#stageTutorial').boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=viewport.width+1&&box.y+box.height<=viewport.height+1);
+        assert(await page.locator('#stageTutorial').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Tutorial fits without scrolling');
+        await page.screenshot({path:path.join(output,'tutorial-'+viewport.width+'.png')});
+      }
+      await page.locator('#tutorialClose').click();await page.locator('#stageTutorial').waitFor({state:'hidden'});
+      await page.addLocatorHandler(page.locator('#stageTutorial[open]'),async()=>{await page.locator('#tutorialContinue').click();});
+    }
     async function checkEditorViewport(){
       await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions');return map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&nav.bottom<=windowBox.top&&[windowBox,map,actions].every(box=>box.top>=nav.bottom&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
       const layout=await page.evaluate(()=>{const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};};return {nav:rect('steps'),window:rect('editorWindow'),map:rect('map'),actions:rect('actions'),height:innerHeight,width:innerWidth,overflow:getComputedStyle(document.body).overflow};});
@@ -311,6 +324,9 @@ async function main(){
     await page.locator('#importDepth').setInputFiles(path.join(output,'fixed-depth.json'));await page.waitForFunction(()=>document.getElementById('validation').textContent.includes('Допустима'));
     await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
+    assert.deepEqual([...aliceProfile.tutorial_seen].sort(),['garage','polygon','routes','zones']);
+    await assert.rejects(rpc(alice.id,'mark_stage_tutorial',['invalid']),/Неизвестный/);
+    const bobTutorial=await rpc(alice.id,'mark_stage_tutorial',['polygon']);assert.equal(bobTutorial.tutorial_seen.filter(stage=>stage==='polygon').length,1,'Tutorial acknowledgements are idempotent');
     const aliceWS=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(aliceWS.zones.length,4);assert.equal(aliceWS.routes.length,1);
     const savedBoundary=(await asUser(alice.id,'select geometry from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].geometry.points;
     const closeRoute=JSON.stringify({points:points([[180,570],[820,570]])});
