@@ -224,7 +224,8 @@
     $("reloadPreset").hidden=!selectedId||Boolean(currentPolygon()?.is_archived);
     $("save").disabled=step==="polygon"&&Boolean(selectedId)&&!ownsPolygon;
     $("next").disabled=step==="polygon"&&Boolean(currentPolygon()?.is_archived)&&!projects.some(p=>p.polygon_id===selectedId);
-    $("polygonSelect").replaceChildren(new Option("Новый полигон",""),...polygons.filter(p=>!p.is_archived||projects.some(project=>project.polygon_id===p.id)).map(p=>new Option(p.name+(p.is_archived?" (пресет удалён)":"")+(projects.some(project=>project.polygon_id===p.id)?" · мой проект":""),p.id)));
+    const polygonPlaceholder=new Option("Выберите полигон","");polygonPlaceholder.disabled=true;polygonPlaceholder.hidden=true;
+    $("polygonSelect").replaceChildren(polygonPlaceholder,...polygons.filter(p=>!p.is_archived||projects.some(project=>project.polygon_id===p.id)).map(p=>new Option(p.name+(p.is_archived?" (пресет удалён)":"")+(projects.some(project=>project.polygon_id===p.id)?" · мой проект":""),p.id)));
     $("polygonSelect").value=selectedId||"";
     if(step==="polygon")renderProjects();
     if(step==="garage")renderGarage();
