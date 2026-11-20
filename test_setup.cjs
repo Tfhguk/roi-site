@@ -409,7 +409,7 @@ async function main(){
     const latest=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
     await rpc(alice.id,'save_workspace',[JSON.stringify(latest.zones),JSON.stringify(latest.routes),JSON.stringify(aliceWS.depth),latest.revision]);await rpc(alice.id,'advance_setup',[]);
     const second=await browser.newContext({viewport:{width:1400,height:1100}}),bobPage=await second.newPage();bobPage.on('pageerror',e=>errors.push(e.message));
-    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);await bobPage.locator('#editorWindow').waitFor({state:'visible'});assert.equal(await bobPage.locator('#editorWindow').isVisible(),true,'Loading a shared polygon opens its window');assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
+    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);await bobPage.waitForFunction(()=>!document.querySelector('main').inert);assert.equal(await bobPage.locator('#editorWindow').isVisible(),false,'Selecting a polygon keeps its editor closed');await bobPage.locator('#steps button').first().click();await bobPage.locator('#editorWindow').waitFor({state:'visible'});assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await bobPage.locator('.equipment-card').count(),0,'Bob cannot see Alice equipment');
     await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button[type=submit]').click();await bobPage.locator('.equipment-card').waitFor();
     const bob=accounts.get('bob@example.com');
@@ -490,7 +490,7 @@ async function main(){
     }
     await page.keyboard.press('Escape');await page.locator('#polygonPreview').waitFor({state:'hidden'});
     assert.deepEqual(await rpc(alice.id,'get_workspace',[]),beforePreview,'Viewing a polygon does not switch or modify its project');
-    await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.locator('#editorWindow').waitFor({state:'visible'});
+    await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.waitForFunction(()=>!document.querySelector('main').inert);assert.equal(await page.locator('#editorWindow').isVisible(),false,'Selecting a polygon waits for the editor button');await page.locator('#steps button').first().click();await page.locator('#editorWindow').waitFor({state:'visible'});
     await page.locator('#previewFromEditor').click();await page.locator('#polygonPreview[open]').waitFor();
     assert.equal(await page.locator('#polygonPreviewMap polygon').count(),1,'Another polygon preview does not inherit active project zones');
     await page.locator('#closePolygonPreview').click();
@@ -521,7 +521,7 @@ async function main(){
     assert.equal((await asUser(alice.id,'select * from public.equipment where polygon_id=$1',[secondOwned.id])).rows.length,0,'Deleting a garage removes only that polygon equipment');
     assert.equal((await asUser(alice.id,"select * from public.marker_reservations where polygon_id=$1 and purpose='equipment'",[secondOwned.id])).rows.length,0,'Garage removal releases equipment IDs');
     assert.equal((await asUser(alice.id,'select * from public.profiles')).rows[0].registration_status,restoredPersonal.registration_status,'Deleting equipment in another polygon leaves active progress alone');
-    await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.locator('#editorWindow').waitFor({state:'visible'});await page.locator('#next').click();await page.locator('#garage').waitFor({state:'visible'});
+    await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.waitForFunction(()=>!document.querySelector('main').inert);assert.equal(await page.locator('#editorWindow').isVisible(),false,'Selecting a polygon waits for the editor button');await page.locator('#steps button').first().click();await page.locator('#editorWindow').waitFor({state:'visible'});await page.locator('#next').click();await page.locator('#garage').waitFor({state:'visible'});
     assert.equal(await page.locator('.equipment-card').count(),0,'Reopening a removed garage starts empty');
     await page.locator('#deleteGarage').click();await page.waitForFunction(()=>!document.getElementById('polygonTools').hidden&&!document.querySelector('main').inert);
     assert.equal((await asUser(alice.id,'select * from public.profiles')).rows[0].polygon_id,null,'Removing the active garage returns to polygon selection');
