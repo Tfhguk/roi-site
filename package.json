@@ -16,7 +16,8 @@
     "test:server": "node test_server.cjs",
     "test:hosting": "node test_browser.cjs --dist && node test_polygon.cjs --dist",
     "test:pages": "node test_browser.cjs --dist --subpath && node test_polygon.cjs --dist --subpath",
-    "test:setup": "node test_setup.cjs"
+    "test:setup": "node test_setup.cjs",
+    "test:charging": "node test_charging.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

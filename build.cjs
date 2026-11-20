@@ -9,7 +9,8 @@ const ZIP = path.join(ROOT, "aruco-site.zip");
 const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.html", "auth.js",
   "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
-  "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js"];
+  "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js",
+  "charging.html", "charging.css", "charging-model.js", "charging.js"];
 const VENDOR_FILES = [
   ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
   ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
