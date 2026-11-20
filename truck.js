@@ -3,7 +3,7 @@
   "use strict";
   const $=id=>document.getElementById(id),G=SetupGeometry,M=TruckModel;
   const clone=x=>structuredClone(x),colors={transport:"#60a5fa",mining:"#fb923c",warehouse:"#c4b5fd",charging:"#4ade80"};
-  let source=null,sim=null,paused=false,last=0,config={...M.defaults},loading=false,notice="",generation=0;
+  let source=null,sim=null,navigation=null,paused=false,last=0,config={...M.defaults},loading=false,notice="",generation=0,mapTransform=null,hoveredCell=null;
   const fmt=(x,d=2)=>x.toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d});
   const box=(id,name,kind,x,y,w,h)=>({id,name,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
   function toast(message){$("toast").querySelector("span").textContent=message;$("toast").hidden=false;}
@@ -25,13 +25,16 @@
     return G.routeErrors({maxDepth:5,maxSlope:2,boundaryClearance:5,markerClearance:40,...r},source.boundary,source.depth,areas,G.safetyContext(source.boundary,areas,G.routingMarkers(source.boundary,source.zones)));
   }
   function reset(){
-    paused=false;last=0;notice="";$("toast").hidden=true;sim=null;
+    paused=false;last=0;notice="";$("toast").hidden=true;sim=null;navigation=null;hoveredCell=null;
     try{
       const r=route();if(!truck())throw Error("На этом полигоне нет ваших самосвалов. Добавьте самосвал в гараже.");
       const errors=routeErrors(r);if(errors.length)throw Error(errors.join("\n"));
       const from=source.zones.find(z=>z.id===r.fromZoneId)||source.zones.find(z=>z.kind!=="transport"&&G.inside(r.points[0],z.points));
       const to=source.zones.find(z=>z.id===r.toZoneId)||source.zones.find(z=>z.kind!=="transport"&&G.inside(r.points.at(-1),z.points));
-      sim=new M.Simulation({...r,fromKind:from?.kind,toKind:to?.kind,returnTrip:$("returnTrip").checked&&r.bidirectional!==false},config);
+      const work={...r,fromKind:from?.kind,toKind:to?.kind,continuous:true};
+      navigation=TruckNavigation.create(source,config,work);
+      const occupied=navigation.validate(r.points);if(occupied.length)throw Error(occupied.join("\n"));
+      sim=new M.Simulation(work,config,navigation);
     }catch(error){notice=error.message;}
     render();if(notice&&route())toast(notice);
   }
@@ -39,7 +42,6 @@
     const routes=source.routes.filter(r=>r.equipmentId===truck()?.id);
     $("routeSelect").replaceChildren(...routes.map(r=>new Option(r.name,r.id)));
     if(!routes.length){const option=new Option("Нет траекторий","");option.disabled=true;$("routeSelect").append(option);}
-    $("returnTrip").disabled=route()?.bidirectional===false;if($("returnTrip").disabled)$("returnTrip").checked=false;
     reset();
   }
   function useSource(value){
@@ -62,8 +64,7 @@
   }
   $("loadProject").onclick=loadProject;
   $("truckSelect").onchange=renderRoutes;
-  $("routeSelect").onchange=()=>{$("returnTrip").disabled=route()?.bidirectional===false;if($("returnTrip").disabled)$("returnTrip").checked=false;reset();};
-  $("returnTrip").onchange=reset;
+  $("routeSelect").onchange=reset;
   $("generate").onclick=()=>{
     try{
       if(!truck())throw Error("Сначала добавьте самосвал в гараже этого полигона.");
@@ -79,9 +80,9 @@
   $("reset").onclick=reset;
   function pause(){if(sim?.active)paused=true;last=0;render();}
   $("help").onclick=()=>{pause();$("helpDialog").showModal();};$("closeHelp").onclick=()=>$("helpDialog").close();
-  $("settings").onclick=()=>{pause();for(const input of $("settingsForm").querySelectorAll("input"))input.value=input.name==="initialSoc"?config.initialSoc*100:config[input.name];$("settingsDialog").showModal();};
+  $("settings").onclick=()=>{pause();for(const input of $("settingsForm").querySelectorAll("input"))input.value=["initialSoc","chargeTrigger"].includes(input.name)?config[input.name]*100:config[input.name];$("settingsDialog").showModal();};
   $("cancelSettings").onclick=()=>$("settingsDialog").close();
-  $("settingsForm").onsubmit=e=>{e.preventDefault();try{const values=Object.fromEntries([...new FormData(e.target)].map(([key,v])=>[key,Number(v)/(key==="initialSoc"?100:1)]));const candidate={...config,...values};new M.Simulation({points:[{x:0,y:0},{x:1,y:0}]},candidate);config=candidate;reset();$("settingsDialog").close();}catch(error){toast(error.message);}};
+  $("settingsForm").onsubmit=e=>{e.preventDefault();try{const values=Object.fromEntries([...new FormData(e.target)].map(([key,v])=>[key,Number(v)/(["initialSoc","chargeTrigger"].includes(key)?100:1)]));const candidate={...config,...values};new M.Simulation({points:[{x:0,y:0},{x:1,y:0}]},candidate);config=candidate;reset();$("settingsDialog").close();}catch(error){toast(error.message);}};
   $("download").onclick=()=>{
     if(!sim)return;sim.sample();const data={...sim.export(),project:{id:source.id,name:source.name,testPaths:source.testPaths},vehicle:clone(truck())};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"})),link=document.createElement("a");link.href=url;link.download="truck-test.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -91,13 +92,32 @@
     const {ctx,w,h}=canvas("map");if(!source||w<1||h<1)return;
     const points=[...source.boundary,...source.zones.flatMap(z=>z.points)],minX=Math.min(...points.map(p=>p.x)),minY=Math.min(...points.map(p=>p.y));
     const width=Math.max(1,Math.max(...points.map(p=>p.x))-minX),height=Math.max(1,Math.max(...points.map(p=>p.y))-minY),scale=Math.min((w-30)/width,(h-30)/height),ox=(w-width*scale)/2-minX*scale,oy=(h-height*scale)/2-minY*scale;
+    mapTransform={scale,ox,oy};
     ctx.translate(ox,oy);ctx.scale(scale,scale);
     const path=(points,color,closed=false,fill=null,lineWidth=2)=>{ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));if(closed)ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill();}ctx.strokeStyle=color;ctx.lineWidth=lineWidth/scale;ctx.stroke();};
     ctx.save();ctx.beginPath();source.boundary.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.clip();
-    const depth=source.depth;depth.cells.forEach((v,i)=>{ctx.fillStyle=v===null?"#7f1d1d88":`hsla(${210-Math.min(1,v/10)*170},65%,45%,.22)`;ctx.fillRect(i%depth.cols*1000/depth.cols,Math.floor(i/depth.cols)*700/depth.rows,1000/depth.cols+.2,700/depth.rows+.2);});ctx.restore();
+    const depth=source.depth,maximum=Math.max(0,...depth.cells.filter(v=>v!==null)),cw=1000/depth.cols,ch=700/depth.rows;
+    if($("showDepth").checked)depth.cells.forEach((v,i)=>{
+      const x=i%depth.cols*cw,y=Math.floor(i/depth.cols)*ch;
+      ctx.fillStyle=v===null?"#b91c1cd9":`hsla(${215-Math.min(1,v/Math.max(maximum,.001))*170},65%,43%,.8)`;ctx.fillRect(x,y,cw+.1,ch+.1);
+      ctx.strokeStyle="#0f172a44";ctx.lineWidth=.5/scale;ctx.strokeRect(x,y,cw,ch);
+      if($("showDepthValues").checked&&Math.min(cw,ch)*scale>=18){ctx.font=`${Math.min(11,Math.min(cw,ch)*scale*.4)/scale}px Segoe UI`;ctx.textAlign="center";ctx.fillStyle="white";ctx.fillText(v===null?"×":fmt(v,1),x+cw/2,y+ch/2+3/scale);}
+    });
+    if(hoveredCell){ctx.strokeStyle="white";ctx.lineWidth=2/scale;ctx.strokeRect(hoveredCell.col*cw,hoveredCell.row*ch,cw,ch);}ctx.restore();
+    $("depthRange").textContent="0 — "+fmt(maximum,1)+" усл. ед. · красное: препятствие";
+    $("depthReadout").textContent=hoveredCell?hoveredCell.value===null?"Препятствие · проезд закрыт":"Глубина: "+fmt(hoveredCell.value,2)+" усл. ед.":"Глубина: наведите или нажмите на карту";
     path(source.boundary,"#94a3b8",true);source.zones.forEach(z=>{path(z.points,colors[z.kind],true,colors[z.kind]+"17");const p=z.points.reduce((a,p)=>({x:a.x+p.x/z.points.length,y:a.y+p.y/z.points.length}),{x:0,y:0});ctx.fillStyle=colors[z.kind];ctx.font=`${11/scale}px Segoe UI`;ctx.textAlign="center";ctx.fillText(z.name,p.x,p.y-12/scale);});
     for(const p of [...source.boundary,...source.zones.flatMap(z=>z.points)])if(Number.isInteger(p.markerId)){ctx.fillStyle="#111827";ctx.fillRect(p.x-9/scale,p.y-9/scale,18/scale,18/scale);ctx.strokeStyle="#e2e8f0";ctx.lineWidth=1/scale;ctx.strokeRect(p.x-9/scale,p.y-9/scale,18/scale,18/scale);ctx.fillStyle="white";ctx.font=`${9/scale}px Segoe UI`;ctx.textAlign="center";ctx.fillText(p.markerId,p.x,p.y+3/scale);}
     for(const r of source.routes.filter(r=>r.equipmentId===truck()?.id))path(r.points,r===route()?"#38bdf8":"#526079",false,null,r===route()?3:1);
+    if(sim&&sim.pathRole!=="work"){const active=sim.points.map(p=>({x:p.x/config.metresPerUnit,y:p.y/config.metresPerUnit}));path(active,"#0f172a",false,null,6);path(active,sim.pathRole==="to-charge"?"#fbbf24":"#e879f9",false,null,3);}
+    for(const station of navigation?.stations||[]){
+      path(station.footprint,"#bbf7d0",true,"#14532d",2);
+      const q=sim?.chargingSite?.id===station.id&&sim.station?sim.station.q:[.01,.13,0,.75],ux=Math.cos(station.heading),uy=Math.sin(station.heading),base={x:station.centre.x+ux*station.lengthM/config.metresPerUnit/2,y:station.centre.y+uy*station.lengthM/config.metresPerUnit/2},tip={x:base.x+ux*q[0]/config.metresPerUnit,y:base.y+uy*q[0]/config.metresPerUnit};
+      path([base,tip],"#e2e8f0",false,null,3);
+      ctx.save();ctx.translate(tip.x,tip.y);ctx.rotate(station.heading+q[2]);const gap=(.005+.015*q[3])/config.metresPerUnit;path([{x:0,y:-gap},{x:3/scale,y:-gap}],"#7dd3fc");path([{x:0,y:gap},{x:3/scale,y:gap}],"#7dd3fc");ctx.restore();
+      ctx.beginPath();ctx.arc(station.dock.x,station.dock.y,3/scale,0,2*Math.PI);ctx.fillStyle=sim?.station?.current>0&&sim.chargingSite?.id===station.id?"#4ade80":"#bbf7d0";ctx.fill();
+      ctx.font=`${10/scale}px Segoe UI`;ctx.textAlign="center";ctx.fillStyle="#dcfce7";ctx.fillText("Станция "+Math.round(station.lengthM*1000)+"×"+Math.round(station.widthM*1000)+" мм*",station.centre.x,station.centre.y-15/scale);
+    }
     if(sim){
       const q={x:sim.x/config.metresPerUnit,y:sim.y/config.metresPerUnit};ctx.save();ctx.translate(q.x,q.y);ctx.rotate(sim.psi);const unit=1/scale;
       ctx.fillStyle="#0b1221";ctx.fillRect(-17*unit,-14*unit,34*unit,9*unit);ctx.fillRect(-17*unit,5*unit,34*unit,9*unit);ctx.strokeStyle="#64748b";ctx.lineWidth=unit;ctx.strokeRect(-17*unit,-14*unit,34*unit,28*unit);
@@ -108,20 +128,27 @@
   }
   function render(){
     const active=Boolean(sim?.active),locked=active||loading;
-    for(const id of ["projectSelect","loadProject","truckSelect","routeSelect","generate","returnTrip"])$(id).disabled=locked||(id==="returnTrip"&&route()?.bidirectional===false);
+    for(const id of ["projectSelect","loadProject","truckSelect","routeSelect","generate"])$(id).disabled=locked;
     $("start").disabled=loading||!sim||sim.stage!=="idle";$("pause").disabled=!active;$("stop").disabled=!active||sim.stage==="stopping";$("download").disabled=!sim;$("pause").textContent=paused?"Продолжить":"Пауза";
     $("reset").disabled=loading;$("settings").disabled=loading;
     $("stage").textContent=(sim?M.labels[sim.stage]:"Выберите траекторию")+(paused&&active?" · пауза":"");
-    const t=sim?.time||0;$("clock").textContent=Math.floor(t/60).toString().padStart(2,"0")+":"+Math.floor(t%60).toString().padStart(2,"0")+" · ×"+(paused?0:$("speed").value);
+    const t=sim?.time||0;$("clock").textContent=Math.floor(t/60).toString().padStart(2,"0")+":"+Math.floor(t%60).toString().padStart(2,"0")+" · ×"+(paused?0:$("speed").value)+" · рейсов "+(sim?.deliveries||0);
     $("vehicleName").textContent=truck()?.name||"Нет самосвала";
     for(const [id,v,u,d]of [["velocity",sim?.v||0," м/с",2],["distance",sim?.distance||0," м",2],["soc",(sim?.soc??config.initialSoc)*100," %",1],["payload",sim?.payload||0," кг",2],["tilt",(sim?.theta||0)*180/Math.PI,"°",0],["current",sim?.current||0," А",2],["leftSpeed",sim?.wL||0," рад/с",2],["rightSpeed",sim?.wR||0," рад/с",2]])$(id).textContent=fmt(v,d)+u;
     $("batteryFill").style.width=(sim?.soc??config.initialSoc)*100+"%";
-    $("stationStatus").textContent=sim?.station?"Станция: "+ChargingModel.labels[sim.station.stage]:"Станция не подключена";
-    $("empty").hidden=Boolean(sim);$("instruction").textContent=!sim?"Выберите самосвал и его траекторию или постройте тестовые пути.":sim.error?"Расчёт остановлен. Причина показана во всплывающем уведомлении.":sim.stage==="station"?"Станция: "+ChargingModel.labels[sim.station.stage]+". Заряжается общая батарея самосвала.":sim.stage==="idle"?"Выберите темп и нажмите «Запустить». Для нового опыта можно изменить параметры.":sim.stage==="complete"?"Маршрут завершён. Скачайте расчёт или выберите следующий путь.":"Самосвал следует по точкам маршрута. Перед каждым поворотом останавливается; движения с поднятым кузовом нет.";
+    $("stationStatus").textContent=(sim?.station?"Станция: "+ChargingModel.labels[sim.station.stage]:"Автозарядка при "+fmt(config.chargeTrigger*100,0)+" %")+" · "+(navigation?.stations.length||0)+" станц.";
+    $("empty").hidden=Boolean(sim);$("instruction").textContent=!sim?"Выберите самосвал и его траекторию или постройте тестовые пути.":sim.error?"Расчёт остановлен. Причина показана во всплывающем уведомлении.":sim.stage==="station"?"Станция: "+ChargingModel.labels[sim.station.stage]+". После заряда: "+(sim.payload>1e-6?"на склад с грузом.":"на добычу без груза."):sim.pathRole==="to-charge"?"Динамический путь на зарядку: учтены глубины, перепады и препятствия.":sim.pathRole==="to-work"?"После зарядки: "+(sim.workGoal.kind==="warehouse"?"на склад с грузом.":"на добычу без груза."):sim.stage==="idle"?"Непрерывный цикл. Погрузка и разгрузка — по 4 с при ×1. Нажмите «Запустить».":"Непрерывная работа. Погрузка и разгрузка — по 4 модельные секунды. Зарядка включается автоматически.";
     $("sourceLabel").textContent=source?.testPaths?"Тестовые пути":"Сохранённые пути";
     if(sim?.error&&notice!==sim.error){notice=sim.error;toast(sim.error);}draw();
   }
   document.addEventListener("visibilitychange",()=>{if(document.hidden)pause();});window.addEventListener("resize",render);
+  $("showDepth").onchange=draw;$("showDepthValues").onchange=draw;
+  function inspectDepth(event){
+    if(!source||!mapTransform)return;const r=$("map").getBoundingClientRect(),x=(event.clientX-r.left-mapTransform.ox)/mapTransform.scale,y=(event.clientY-r.top-mapTransform.oy)/mapTransform.scale;
+    if(x<0||x>=1000||y<0||y>=700||!G.inside({x,y},source.boundary)){hoveredCell=null;draw();return;}
+    const col=Math.floor(x/1000*source.depth.cols),row=Math.floor(y/700*source.depth.rows);hoveredCell={col,row,value:source.depth.cells[row*source.depth.cols+col]};draw();
+  }
+  $("map").addEventListener("pointermove",inspectDepth);$("map").addEventListener("pointerdown",inspectDepth);$("map").addEventListener("pointerleave",()=>{hoveredCell=null;draw();});
   function frame(now){
     const elapsed=last?Math.min(.1,(now-last)/1000):0;last=now;
     if(sim?.active&&!paused&&!document.hidden){

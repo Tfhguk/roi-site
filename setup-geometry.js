@@ -71,6 +71,9 @@
     if(Math.abs(den)>EPS){const t=((c.x-a.x)*(d.y-c.y)-(c.y-a.y)*(d.x-c.x))/den,u=((c.x-a.x)*(b.y-a.y)-(c.y-a.y)*(b.x-a.x))/den;if(t>=0&&t<=1&&u>=0&&u<=1)return 0;}
     return Math.min(nearSegment(a,c,d).distance,nearSegment(b,c,d).distance,nearSegment(c,a,b).distance,nearSegment(d,a,b).distance);
   }
+  function hitsObstacles(points,obstacles=[]){
+    return obstacles.some(polygon=>points.some(p=>inside(p,polygon))||points.some((p,i)=>i&&polygon.some((q,j)=>segmentDistance(points[i-1],p,q,polygon[(j+1)%polygon.length])<EPS)));
+  }
   function areaEdges(areas){
     const edges=[],contains=p=>areas.some(area=>inside(p,area));
     for(const area of areas)area.forEach((a,i)=>{
@@ -105,6 +108,7 @@
     if(!validPoints(route.points,false)) return ["Нужно не менее двух разных точек без самопересечений."];
     if(!inPolygon(route.points,polygon,false)) errors.push("Траектория выходит за границу полигона.");
     if(transportAreas&&!inAreas(route.points,transportAreas))errors.push("Траектория выходит из транспортной зоны — области разрешённого движения.");
+    if(hitsObstacles(route.points,route.obstacles))errors.push("Траектория пересекает корпус зарядной станции.");
     errors.push(...clearanceErrors(route.points,route,safety||safetyContext(polygon,transportAreas)));
     if(!Number.isFinite(route.maxDepth)||route.maxDepth<0||!Number.isFinite(route.maxSlope)||route.maxSlope<0) return [...errors,"Задайте допустимую глубину и перепад не меньше нуля."];
     for(let i=1;i<route.points.length;i++) {
@@ -203,15 +207,15 @@
   function plannerLimits(options={}) {
     const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2,boundaryClearance:options.boundaryClearance??0,markerClearance:options.markerClearance??0};
     if(!Object.values(limits).every(v=>Number.isFinite(v)&&v>=0&&v<=1000))throw Error("Глубина и перепад для автопостроения должны быть от 0 до 1000.");
-    return {...limits,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[]};
+    return {...limits,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
   }
   function makeGraph(polygon,depth,limits) {
     limits={...limits,safety:safetyContext(polygon,limits.transportAreas,limits.markers)};
     const nodes=depth.cells.map((value,i)=>({x:(i%depth.cols+.5)*W/depth.cols,y:(Math.floor(i/depth.cols)+.5)*H/depth.rows}));
-    const within=p=>inside(p,polygon)&&(!limits.transportAreas||inAreas([p],limits.transportAreas))&&!clearanceErrors([p],limits,limits.safety).length;
+    const within=p=>inside(p,polygon)&&(!limits.transportAreas||inAreas([p],limits.transportAreas))&&!hitsObstacles([p],limits.obstacles)&&!clearanceErrors([p],limits,limits.safety).length;
     const allowed=nodes.map((p,i)=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth&&within(p));
     const gridCount=nodes.length,edges=new Map(),links=new Map();
-    const vertices=[...polygon,...(limits.transportAreas||[]).flat()],extra=[...vertices];
+    const vertices=[...polygon,...(limits.transportAreas||[]).flat(),...limits.obstacles.flat()],extra=[...vertices];
     for(const p of vertices)if(limits.boundaryClearance>0)for(let k=0;k<8;k++)extra.push({x:p.x+Math.cos(k*Math.PI/4)*limits.boundaryClearance*1.5,y:p.y+Math.sin(k*Math.PI/4)*limits.boundaryClearance*1.5});
     for(const p of limits.markers)if(limits.markerClearance>0)for(let k=0;k<8;k++)extra.push({x:p.x+Math.cos(k*Math.PI/4)*limits.markerClearance*1.1,y:p.y+Math.sin(k*Math.PI/4)*limits.markerClearance*1.1});
     for(const p of extra){if(!within(p)||nodes.slice(gridCount).some(q=>dist(p,q)<=.1))continue;nodes.push({x:p.x,y:p.y});allowed.push(cellsAt(p,depth).every(i=>depth.cells[i]!==null&&depth.cells[i]<=limits.maxDepth));}
@@ -230,7 +234,7 @@
       for(const [dx,dy]of [[-1,0],[1,0],[0,-1],[0,1]]){
         const nx=x+dx,ny=y+dy,j=ny*depth.cols+nx;
         if(nx<0||nx>=depth.cols||ny<0||ny>=depth.rows||!allowed[j])continue;
-        if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
+        if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||hitsObstacles([nodes[i],nodes[j]],limits.obstacles)||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
         const delta=Math.abs(depth.cells[i]-depth.cells[j]);result.push({i:j,peak:delta,variation:delta,length:dist(nodes[i],nodes[j])});
       }
       edges.set(i,result);return result;
@@ -351,5 +355,5 @@
     }
     return {routes,unreachable};
   }
-  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,equipmentRole,vehicleRouteErrors});
+  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,hitsObstacles,equipmentRole,vehicleRouteErrors});
 })(globalThis);
