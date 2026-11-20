@@ -245,6 +245,7 @@
     if(garageFocusId){garagePage=Math.max(0,Math.floor(ownEquipment().findIndex(item=>item.id===garageFocusId)/pageSize));garageFocusId=null;}
     const cards=ownEquipment().map(item=>{
       const card=document.createElement("article");card.className="equipment-card";
+      card.dataset.type=item.type==="excavator"?"bulldozer":item.type;
       const title=document.createElement("h2");title.textContent=item.name;
       const image=new Image();image.alt="ID "+item.marker_id;image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(ArucoMarker.toSVG(item.marker_id,300));
       const role=G.equipmentRole(item.type);
@@ -467,7 +468,7 @@
     if(closed&&!G.inPolygon(draft.points,boundary()))throw Error("Зона должна целиком находиться внутри полигона.");
     if(closed&&draft.kind!=="transport"&&drivingAreas().length&&!G.inAreas(draft.points,drivingAreas(),true))throw Error("Склад, зарядная станция и добыча должны находиться внутри транспортной зоны.");
     const name=$("shapeName").value.trim();if(!name)throw Error("Введите название фигуры.");
-    if(!closed&&(Number($("boundaryClearance").value)<1||Number($("markerClearance").value)<24))throw Error("Отступ от границы должен быть не меньше 1, от центра рукомаркера — не меньше 24 единиц карты.");
+    if(!closed&&(Number($("boundaryClearance").value)<1||Number($("markerClearance").value)<24))throw Error("Отступ от границы должен быть не меньше 1, от центра арукомаркера — не меньше 24 единиц карты.");
     snapshot();
     const item={id:draft.id,name,points:clone(draft.points)};
     if(closed)item.kind=draft.kind;
@@ -480,7 +481,7 @@
   function createAutoRoutes(newMap=false){
     if(draft)throw Error("Сначала сохраните редактируемую фигуру в проект.");
     const limits={maxDepth:Number($("plannerMaxDepth").value),maxSlope:Number($("plannerMaxSlope").value),boundaryClearance:Number($("plannerBoundaryClearance").value),markerClearance:Number($("plannerMarkerClearance").value)};
-    if(limits.boundaryClearance<1||limits.markerClearance<24)throw Error("Отступ от границы должен быть не меньше 1, от центра рукомаркера — не меньше 24 единиц карты.");
+    if(limits.boundaryClearance<1||limits.markerClearance<24)throw Error("Отступ от границы должен быть не меньше 1, от центра арукомаркера — не меньше 24 единиц карты.");
     const depth=newMap?G.generateDepth(boundary(),ws.zones,crypto.getRandomValues(new Uint32Array(1))[0],40,28,limits):ws.depth;
     const vehicles=ownEquipment().filter(e=>!$("plannerEquipment").value||e.id===$("plannerEquipment").value);
     const result=G.planRoutes(boundary(),ws.zones,vehicles,depth,limits);

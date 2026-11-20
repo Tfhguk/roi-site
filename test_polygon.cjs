@@ -196,7 +196,7 @@ async function main() {
       if (i === 1) {
         await clickAt(expected[i].x, expected[i].y);
         assert.equal(await page.locator("#vertexCount").innerText(), "2");
-        assert.match(await page.locator("#status").innerText(), /уже добавлена/);
+        assert.match(await page.locator("#status").innerText(), /уже добавлен/);
         assert(await page.locator("#closePolygonBtn").isDisabled());
       }
     }

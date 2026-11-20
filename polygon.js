@@ -47,7 +47,7 @@
     $("polygonHint").textContent = closed ? "Граница замкнута. Можно сохранить результат." :
       invalid ? "Граница пересекается или вырождается. Нажмите «Исправить порядок» или используйте стрелки у вершин." :
       vertices.length >= 3 ? "Замкните границу. Стрелками у вершин можно изменить порядок обхода." :
-      "Нужно не менее трёх рукометок.";
+      "Нужно не менее трёх арукомаркеров.";
   }
   function renderList() {
     $("vertexList").replaceChildren();
@@ -193,7 +193,7 @@
     live = true;
     cancelAnimationFrame(animation);
     liveFrame(); update();
-    status("Нажмите рядом с первой рукометкой: кадр зафиксируется, а поиск найдёт её центр.");
+    status("Нажмите рядом с первым арукомаркером: кадр зафиксируется, а поиск найдёт его центр.");
   }
   function freeze() {
     if (!live || video.readyState < 2) return false;
@@ -203,7 +203,7 @@
     frameContext.drawImage(video, 0, 0);
     live = false; captured = true;
     update();
-    status("Кадр зафиксирован. Выбирайте рукометки по порядку обхода границы.");
+    status("Кадр зафиксирован. Выбирайте арукомаркеры по порядку обхода границы.");
     return true;
   }
   async function startCamera() {
@@ -326,7 +326,7 @@
     if (live && !freeze()) return;
     const radius = Number($("searchRadius").value) * canvas.width / bounds.width;
     search = { ...click, radius };
-    draw(); status("Ищем рукометку рядом с выбранной точкой…");
+    draw(); status("Ищем арукомаркер рядом с выбранной точкой…");
     const version = sourceVersion;
     const half = radius * 1.6;
     const left = Math.max(0, Math.floor(click.x - half)), top = Math.max(0, Math.floor(click.y - half));
@@ -351,21 +351,21 @@
       }).filter(marker => marker.distance <= radius).sort((a, b) => a.distance - b.distance);
       if (!candidates.length) {
         search.failed = true; draw();
-        status("Рукометка рядом не найдена. Нажмите ближе к её центру, увеличьте радиус поиска или проверьте выбранный словарь.", "error"); return;
+        status("Арукомаркер рядом не найдена. Нажмите ближе к её центру, увеличьте радиус поиска или проверьте выбранный словарь.", "error"); return;
       }
       const marker = candidates[0];
       const duplicate = vertices.findIndex(vertex => Math.hypot(vertex.x - marker.x, vertex.y - marker.y) < 8);
       search = null;
       if (duplicate === 0 && vertices.length >= 3) { closePolygon(); return; }
-      if (duplicate >= 0) { draw(); status("Эта рукометка уже добавлена как вершина " + (duplicate + 1) + "."); return; }
+      if (duplicate >= 0) { draw(); status("Этот арукомаркер уже добавлен как вершина " + (duplicate + 1) + "."); return; }
       if (!PolygonGeometry.isSimple([...vertices, marker], false)) {
-        draw(); status("Новое ребро пересекает границу. Выбирайте рукометки по порядку обхода полигона.", "error"); return;
+        draw(); status("Новое ребро пересекает границу. Выбирайте арукомаркеры по порядку обхода полигона.", "error"); return;
       }
       remember();
       vertices.push({ id: marker.id, x: marker.x, y: marker.y, corners: marker.corners });
       update(); status("Добавлена вершина " + vertices.length + " — центр ArUco ID " + marker.id + ".", "success");
     } catch (error) {
-      if (version === sourceVersion) status(error.message || "Ошибка поиска рукометки. Повторите клик.", "error");
+      if (version === sourceVersion) status(error.message || "Ошибка поиска арукомаркера. Повторите клик.", "error");
     } finally {
       controls(); renderList();
     }
@@ -392,7 +392,7 @@
   });
   $("dictionarySelect").addEventListener("change", () => {
     vertices = []; history = []; closed = false; search = null;
-    update(); status("Словарь изменён. Выберите рукометки заново на этом кадре.");
+    update(); status("Словарь изменён. Выберите арукомаркеры заново на этом кадре.");
   });
   $("searchRadius").addEventListener("input", () => { $("radiusValue").textContent = $("searchRadius").value; });
   $("closePolygonBtn").addEventListener("click", closePolygon);
@@ -400,14 +400,14 @@
     if (pending || vertices.length < 3) return;
     const ordered = PolygonGeometry.repairOrder(vertices);
     if (!ordered) {
-      status("Не удалось исправить границу: нужны минимум три различные рукометки, расположенные не на одной прямой. Измените выбор вершин.", "error"); return;
+      status("Не удалось исправить границу: нужны минимум три различных арукомаркера, расположенных не на одной прямой. Измените выбор вершин.", "error"); return;
     }
     if (ordered.every((vertex, index) => vertex === vertices[index])) {
       status(closed ? "Порядок вершин уже правильный. Полигон готов." : "Порядок вершин уже правильный. Можно замкнуть полигон.", "success"); return;
     }
     remember();
     vertices = ordered; closed = false; search = null;
-    update(); status("Порядок исправлен: пересечения устранены, все рукометки сохранены. Нажмите «Замкнуть полигон».", "success");
+    update(); status("Порядок исправлен: пересечения устранены, все арукомаркеры сохранены. Нажмите «Замкнуть полигон».", "success");
   });
   $("undoBtn").addEventListener("click", () => {
     if (pending || !history.length) return;
@@ -417,7 +417,7 @@
   });
   $("clearBtn").addEventListener("click", () => {
     remember();
-    vertices = []; closed = false; search = null; update(); status("Граница очищена. Можно выбрать рукометки заново.");
+    vertices = []; closed = false; search = null; update(); status("Граница очищена. Можно выбрать арукомаркеры заново.");
   });
   $("downloadPngBtn").addEventListener("click", () => {
     if (!closed) return;

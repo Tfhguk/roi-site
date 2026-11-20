@@ -74,7 +74,7 @@ function geometryTests(){
   const unionPath=G.findPath({x:200,y:200},{x:800,y:550},boundary,G.emptyDepth(),{transportAreas:drivingUnion});
   assert(!G.inAreas(points([[200,200],[800,550]]),drivingUnion));assert(unionPath&&G.inAreas(unionPath,drivingUnion),'Can move across overlapping transport areas without cutting excluded space');
   const safety=G.safetyContext(boundary,[boundary],[{x:500,y:350}]),policy={boundaryClearance:15,markerClearance:40};
-  assert(G.clearanceErrors(points([[100,350],[900,350]]),policy,safety).some(e=>e.includes('рукомаркер')),'Check the segment interior, not just endpoints');
+  assert(G.clearanceErrors(points([[100,350],[900,350]]),policy,safety).some(e=>e.includes('арукомаркер')),'Check the segment interior, not just endpoints');
   const around=G.findPath({x:125,y:325},{x:875,y:325},boundary,G.emptyDepth(),{...policy,markers:[{x:500,y:350}]});
   assert(around&&around.length>2);assert.deepEqual(G.clearanceErrors(around,policy,safety),[]);
   assert(G.clearanceErrors(points([[100,10],[900,10]]),policy,safety).some(e=>e.includes('границы')));

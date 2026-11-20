@@ -23,8 +23,8 @@
   <div class="header-group"><span id="userName"></span><button class="btn" id="logoutBtn">Выйти</button></div>
 </header>
 <main>
-  <h2>Постройте границу по рукометкам</h2>
-  <p class="intro">Включите камеру и нажимайте рядом с рукометками по порядку обхода границы. Первый клик зафиксирует кадр. Вершины появятся точно в центрах найденных маркеров.</p>
+  <h2>Постройте границу по арукомаркерам</h2>
+  <p class="intro">Включите камеру и нажимайте рядом с арукомаркерами по порядку обхода границы. Первый клик зафиксирует кадр. Вершины появятся точно в центрах найденных маркеров.</p>
   <div class="toolbar">
     <button class="btn primary" id="startCameraBtn">Включить камеру</button>
     <button class="btn" id="captureBtn" disabled>Зафиксировать кадр</button>
@@ -35,14 +35,14 @@
     <section class="camera-panel" aria-label="Изображение с камеры">
       <div class="stage" id="stage">
         <div id="placeholder"><span class="camera-icon">◎</span><strong>Изображение с камеры</strong><p>Нажмите «Включить камеру» и разрешите доступ в браузере.</p></div>
-        <canvas id="scene" width="960" height="640" hidden tabindex="0" aria-label="Кадр камеры. Нажмите рядом с рукометкой, чтобы добавить вершину."></canvas>
+        <canvas id="scene" width="960" height="640" hidden tabindex="0" aria-label="Кадр камеры. Нажмите рядом с арукомаркером, чтобы добавить вершину."></canvas>
       </div>
       <video id="cameraVideo" autoplay playsinline muted hidden></video>
       <p id="status" class="status" role="status" aria-live="polite">Для начала включите камеру.</p>
     </section>
     <aside class="panel">
       <div class="panel-heading"><h3>Вершины</h3><span id="vertexCount" class="badge">0</span></div>
-      <p id="polygonHint" class="muted">Нужно не менее трёх рукометок.</p>
+      <p id="polygonHint" class="muted">Нужно не менее трёх арукомаркеров.</p>
       <ol id="vertexList"></ol>
       <button class="btn repair" id="fixOrderBtn" disabled>↻ Исправить порядок</button>
       <div class="secondary-actions">
@@ -58,12 +58,12 @@
   <details class="panel settings">
     <summary>Настройки камеры и поиска</summary>
     <div class="settings-grid">
-      <label>Словарь рукометок<select id="dictionarySelect"><option value="DICT_4X4_50">DICT_4X4_50 — 4×4, ID 0–49</option><option value="ARUCO_ORIGINAL">ArUco Original — 5×5, ID 0–1023</option></select></label>
+      <label>Словарь арукомаркеров<select id="dictionarySelect"><option value="DICT_4X4_50">DICT_4X4_50 — 4×4, ID 0–49</option><option value="ARUCO_ORIGINAL">ArUco Original — 5×5, ID 0–1023</option></select></label>
       <label>Камера<select id="cameraSelect"><option value="">Автоматически (задняя камера)</option></select></label>
       <label>Радиус поиска: <output id="radiusValue">120</output> px на экране<input type="range" id="searchRadius" min="40" max="240" step="20" value="120"></label>
       <div><button class="btn small" id="stopCameraBtn" disabled>Выключить камеру</button></div>
     </div>
-    <p class="muted">Используйте тот же словарь, что при создании маркеров. На рукометках должны быть видны чёрная рамка и белое поле. Координаты сохраняются в пикселях исходного кадра, отсчёт — от его левого верхнего угла.</p>
+    <p class="muted">Используйте тот же словарь, что при создании маркеров. На арукомаркерах должны быть видны чёрная рамка и белое поле. Координаты сохраняются в пикселях исходного кадра, отсчёт — от его левого верхнего угла.</p>
   </details>
 </main>
 </body>

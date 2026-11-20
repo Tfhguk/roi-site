@@ -479,7 +479,7 @@ begin
       not roi_private.path_ok(route->'points',boundary,ws.depth,(route->>'maxDepth')::float8,(route->>'maxSlope')::float8) or
       not roi_private.within_transport(route->'points',ws.zones) or
       not roi_private.route_clearance_ok(route,boundary,ws.zones) or
-      not roi_private.vehicle_route_ok(route,(select type from public.equipment where id=(route->>'equipmentId')::uuid),ws.zones) then raise exception 'Траектория недопустима: проверьте назначение техники, её базу, транспортную зону, отступы от границ и рукомаркеров, препятствия и глубины.'; end if;
+      not roi_private.vehicle_route_ok(route,(select type from public.equipment where id=(route->>'equipmentId')::uuid),ws.zones) then raise exception 'Траектория недопустима: проверьте назначение техники, её базу, транспортную зону, отступы от границ и арукомаркеров, препятствия и глубины.'; end if;
    end loop;
    profile.registration_status:='ready';
   end if;

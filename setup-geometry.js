@@ -85,11 +85,11 @@
   function safetyContext(polygon,areas,markers=[]){return {edges:[...polygon.map((p,i)=>[p,polygon[(i+1)%polygon.length]]),...areaEdges(areas||[])],markers};}
   function clearanceErrors(points,policy,context){
     const edgeGap=policy.boundaryClearance??0,markerGap=policy.markerClearance??0,errors=[];
-    if(![edgeGap,markerGap].every(v=>Number.isFinite(v)&&v>=0&&v<=1000))return ["Укажите корректные отступы от границ и рукомаркеров."];
+    if(![edgeGap,markerGap].every(v=>Number.isFinite(v)&&v>=0&&v<=1000))return ["Укажите корректные отступы от границ и арукомаркеров."];
     for(let i=0;i<Math.max(1,points.length-1);i++){
       const a=points[i],b=points[i+1]||a;
       if(edgeGap>0&&context.edges.some(([c,d])=>segmentDistance(a,b,c,d)<edgeGap-EPS))errors.push("Недостаточный отступ от границы транспортной зоны или полигона.");
-      if(markerGap>0&&context.markers.some(p=>nearSegment(p,a,b).distance<markerGap-EPS))errors.push("Траектория проходит слишком близко к рукомаркеру.");
+      if(markerGap>0&&context.markers.some(p=>nearSegment(p,a,b).distance<markerGap-EPS))errors.push("Траектория проходит слишком близко к арукомаркеру.");
     }return [...new Set(errors)];
   }
   function validateDepth(map) {
@@ -183,13 +183,13 @@
     centres=centres.map((p,i)=>{
       if(!clearanceErrors([p],limits,flatGraph.safety).length)return p;
       const candidates=flatGraph.nodes.filter((q,j)=>flatGraph.allowed[j]&&inside(q,working[i].points)).sort((a,b)=>dist(a,p)-dist(b,p));
-      if(!candidates.length)throw Error("Нет безопасного подъезда к зоне «"+working[i].name+"»: проверьте отступы от её рукомаркеров и границ.");
+      if(!candidates.length)throw Error("Нет безопасного подъезда к зоне «"+working[i].name+"»: проверьте отступы от её арукомаркеров и границ.");
       return candidates[0];
     });centres.forEach(reserve);
     for(const centre of centres.slice(1)){
       if(dist(centres[0],centre)<=.1)continue;
       const path=searchPath(centres[0],centre,polygon,flat,limits,flatGraph);
-      if(!path)throw Error("Не удалось обеспечить проезд ко всем зонам с заданными отступами от границы и рукомаркеров. Расширьте узкие участки транспортной зоны или проверьте размеры отступов.");
+      if(!path)throw Error("Не удалось обеспечить проезд ко всем зонам с заданными отступами от границы и арукомаркеров. Расширьте узкие участки транспортной зоны или проверьте размеры отступов.");
       for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i],ts=segmentCuts(a,b,polygon,map);
         for(const t of [0,...ts.slice(1).flatMap((t,j)=>[(ts[j]+t)/2,t])])reserve({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t});
       }

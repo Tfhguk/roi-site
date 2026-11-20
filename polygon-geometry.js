@@ -5,7 +5,7 @@
     // The diagonal intersection is the projected centre even under perspective.
     const [a, b, c, d] = corners;
     const denominator = (c.x - a.x) * (d.y - b.y) - (c.y - a.y) * (d.x - b.x);
-    if (Math.abs(denominator) < 1e-8) throw new Error("Вырожденная рукометка");
+    if (Math.abs(denominator) < 1e-8) throw new Error("Вырожденный арукомаркер");
     const t = ((b.x - a.x) * (d.y - b.y) - (b.y - a.y) * (d.x - b.x)) / denominator;
     return { x: a.x + t * (c.x - a.x), y: a.y + t * (c.y - a.y) };
   }

@@ -92,6 +92,12 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 .equipment-route-card .route-list-item button{font-size:.72rem;padding:5px 8px}
 .equipment-route-card>p{margin:6px;font-size:.75rem}
 /* Active setup stages fit the viewport; long lists use page controls. */
+.equipment-card{--equipment-accent:#38bdf8;--equipment-tint:#16364b;border-left:4px solid var(--equipment-accent);background:linear-gradient(120deg,var(--equipment-tint),var(--panel) 85%)}
+.equipment-card[data-type="truck"]{--equipment-accent:#38bdf8;--equipment-tint:#16364b}
+.equipment-card[data-type="bulldozer"]{--equipment-accent:#fbbf24;--equipment-tint:#493819}
+.equipment-card[data-type="loader"]{--equipment-accent:#4ade80;--equipment-tint:#174431}
+.equipment-card[data-type="robot"]{--equipment-accent:#c4b5fd;--equipment-tint:#382952}
+.equipment-card .equipment-info>p{color:var(--equipment-accent)}
 #mapContextMenu{position:fixed;z-index:95;background:var(--panel);border:1px solid #64748b;box-shadow:0 8px 28px #0008;padding:5px;border-radius:9px;max-width:calc(100vw - 10px)}
 #mapContextMenu button{border:0;width:100%;text-align:left;font-size:.85rem;padding:8px 12px}
 #renamePolygon{font-size:.76rem;padding:6px 9px}
