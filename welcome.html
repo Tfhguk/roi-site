@@ -11,6 +11,7 @@
     --text:#e2e8f0; --muted:#94a3b8; --border:#334155;
   }
   *{box-sizing:border-box;}
+  [hidden]{display:none!important;}
   body{
     margin:0; min-height:100vh; color:var(--text);
     background:radial-gradient(1200px 600px at 50% -10%,#1e3a5f 0%,var(--bg) 55%);
@@ -61,13 +62,11 @@
     box-shadow:0 0 0 3px rgba(56,189,248,.12);
     transform:translateY(-2px);
   }
-  .step .icon{font-size:2rem;}
   .step h3{margin:0; font-size:1.05rem;}
   .step p{margin:0; color:var(--muted); font-size:.85rem; line-height:1.5; flex:1;}
-  .step .go{
-    align-self:flex-start; margin-top:6px;
-    color:var(--accent); font-size:.85rem; font-weight:600;
-  }
+  .steps.local-tools{display:flex;flex:none;flex-wrap:wrap;align-items:flex-start;}
+  #loadError{position:fixed;right:18px;bottom:18px;z-index:20;width:min(440px,calc(100vw - 36px));padding:16px;background:#302235;border:1px solid #fb7185;border-radius:12px;box-shadow:0 8px 32px #0008;}
+  #loadError p{margin:8px 0 12px;overflow-wrap:anywhere;}
   .step[aria-disabled="true"]{opacity:.5;cursor:default;transform:none;box-shadow:none;border-color:var(--border);}
   html,body{height:100%;overflow:hidden}body{height:100dvh;display:flex;flex-direction:column}header{flex:none;padding:10px 18px}main{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;padding:18px;gap:12px;overflow:hidden}.hello{margin:0;flex:none}.hello h2{font-size:1.25rem}.hello p{font-size:.82rem}.steps{flex:1;min-height:0;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:10px}.step{min-height:0;padding:15px;gap:7px}.step h3{font-size:1rem}.step p{font-size:.8rem}.step .go{margin:0}
   @media(max-width:550px){header{padding:8px 12px}header h1{font-size:.85rem}main{padding:12px;gap:9px}.steps{grid-template-columns:minmax(0,1fr);gap:8px}.step{padding:11px}.step h3{font-size:.9rem}.step p{font-size:.75rem}}
@@ -92,47 +91,41 @@
   </div>
 </header>
 
-<main>
+<main aria-busy="true">
   <div class="hello">
-    <h2>Здравствуйте, <span id="helloName">—</span></h2>
-    <p>Выберите этап работы. Каждый этап — отдельный раздел приложения.</p>
+    <h2 id="greeting" hidden>Здравствуйте, <span id="helloName"></span></h2>
+    <p role="status">Загружаем аккаунт…</p>
   </div>
-
-  <div class="steps">
-
-    <!-- ЭТАП 1: АРУКОМАРКЕРЫ -->
-    <a class="step" href="markers.html">
-      <div class="icon">🎯</div>
-      <h3>Создание арукомаркеров</h3>
-      <p>Генерация OpenCV ArUco 4×4 (ID 0–49), привязка к технике, экспорт таблицы в PDF.</p>
-      <span class="go">Перейти →</span>
-    </a>
-
-    <a class="step" href="polygon.html">
-      <div class="icon">⬡</div>
-      <h3>Границы полигона</h3>
-      <p>Камера, поиск арукомаркеров по клику и построение многоугольника через их центры.</p>
-      <span class="go">Перейти →</span>
-    </a>
-
-  </div>
+  <div class="steps"></div>
 </main>
+<div id="loadError" role="alert" hidden><strong>Не удалось загрузить аккаунт</strong><p id="loadErrorText"></p><button class="btn" id="retryLoad">Повторить загрузку</button></div>
 
 <script src="cloud-config.js"></script>
 <script src="cloud-client.js"></script>
 <script src="auth.js"></script>
 <script>
-if (AppCloud.configured) {
-  (async function(){
-    if(!AppCloud.session()){location.replace("login.html");return;}
-    try {
+(async function(){
+  const main=document.querySelector("main"),steps=document.querySelector(".steps");
+  document.getElementById("retryLoad").onclick=()=>location.reload();
+  document.getElementById("logoutBtn").onclick=async()=>{
+    try{if(globalThis.AppCloud?.configured)await AppCloud.logout();}
+    catch(error){/* Exit still works when the server is unavailable. */}
+    finally{localStorage.removeItem("app_session_v1");location.href="login.html";}
+  };
+  function showAccount(profile,role){
+    for(const id of ["userName","helloName"])document.getElementById(id).textContent=profile.name;
+    document.getElementById("userAvatar").textContent=profile.name.slice(0,1);
+    document.getElementById("userRole").textContent=role;
+    document.getElementById("greeting").hidden=false;
+  }
+  try{
+    if(!globalThis.AppCloud)throw Error("Не загружены файлы приложения. Проверьте соединение и повторите загрузку.");
+    if(AppCloud.configured){
+      if(!AppCloud.session()){location.replace("login.html");return;}
       const profile=await AppCloud.me();
       if(profile.registration_status!=="ready"&&(AppCloud.routesEnabled||profile.registration_status!=="routes")){location.replace("setup.html");return;}
-      for(const id of ["userName","helloName"])document.getElementById(id).textContent=profile.name;
-      document.getElementById("userAvatar").textContent=profile.name.slice(0,1);
-      document.getElementById("userRole").textContent=!AppCloud.routesEnabled&&profile.registration_status==="routes"?"Основные этапы настроены":AppCloud.labels[profile.registration_status];
+      showAccount(profile,!AppCloud.routesEnabled&&profile.registration_status==="routes"?"Основные этапы настроены":AppCloud.labels[profile.registration_status]);
       document.querySelector(".hello p").textContent=AppCloud.routesEnabled?"Настройка завершена. Можно изменять свой гараж, зоны, карту глубины и траектории.":"Можно изменять полигон, свой гараж и зоны. Раздел «Траектории» временно отключён.";
-      const steps=document.querySelector(".steps");steps.replaceChildren();
       for(const [stage,title,text] of [["polygon","Полигон","Выберите готовый полигон или создайте новый: обведите границу точками и сохраните."],["garage","Мой гараж","Добавьте машины, выберите для каждой свободный ID и скачайте её метку."],["zones","Рабочие зоны","Обведите область движения, а внутри неё — склад, зарядку и добычу. Сохраните зоны."],["routes","Траектории и глубины","Постройте пути, выберите технику, отредактируйте точки и сохраните."]]){
         const link=document.createElement("a");link.className="step";link.href="setup.html?step="+stage;
         const disabled=stage==="routes"&&!AppCloud.routesEnabled;
@@ -140,29 +133,22 @@ if (AppCloud.configured) {
         const heading=document.createElement("h3");heading.textContent=title;
         const description=document.createElement("p");description.textContent=disabled?"Временно отключено.":text;link.append(heading,description);steps.append(link);
       }
-      document.getElementById("logoutBtn").onclick=async()=>{try{await AppCloud.logout();}finally{location.href="login.html";}};
-    }catch(error){document.querySelector(".hello p").textContent=error.message;document.querySelector(".steps").replaceChildren();}
-  })();
-} else {
-var SESSION_KEY = "app_session_v1";
-
-function loadSession() { return AppAuth.loadSession(); }
-
-var sess = loadSession();
-if (!sess || !sess.login) {
-  window.location.href = "login.html";
-} else {
-  document.getElementById("userName").textContent = sess.name;
-  document.getElementById("userRole").textContent = sess.role;
-  document.getElementById("userAvatar").textContent = sess.name.substring(0,1).toUpperCase();
-  document.getElementById("helloName").textContent = sess.name;
-}
-
-document.getElementById("logoutBtn").addEventListener("click", function () {
-  localStorage.removeItem(SESSION_KEY);
-  window.location.href = "login.html";
-});
-}
+    }else{
+      const session=globalThis.AppAuth?.loadSession();
+      if(!session?.login){location.replace("login.html");return;}
+      showAccount(session,session.role);
+      document.querySelector(".hello p").textContent="Локальный деморежим. Выберите инструмент.";
+      steps.classList.add("local-tools");
+      for(const [href,title] of [["markers.html","Арукомаркеры"],["polygon.html","Границы полигона"]]){
+        const link=document.createElement("a");link.href=href;link.className="btn";link.textContent=title;steps.append(link);
+      }
+    }
+  }catch(error){
+    steps.replaceChildren();document.querySelector(".hello p").textContent="Загрузка остановлена. Повторите попытку.";
+    document.getElementById("loadErrorText").textContent=error.message;
+    document.getElementById("loadError").hidden=false;
+  }finally{main.setAttribute("aria-busy","false");}
+})();
 </script>
 </body>
 </html>

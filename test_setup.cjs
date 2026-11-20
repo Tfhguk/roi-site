@@ -317,6 +317,7 @@ async function main(){
     const firstPath=autoProject.routes[0].points;await clickAt((firstPath[0].x+firstPath[1].x)/2,(firstPath[0].y+firstPath[1].y)/2);
     assert.equal(await page.locator('#vertexList button').count(),firstPath.length+1,'Automatically generated routes remain editable');
     await page.locator('#applyShape').click();await page.locator('#save').click();
+    await page.waitForFunction(()=>document.getElementById('saveState').textContent==='Изменения сохранены');
     const savedAuto=(await asUser(alice.id,'select * from public.workspaces')).rows[0];assert.equal(savedAuto.routes.length,2);assert.equal(savedAuto.routes[0].points.length,firstPath.length+1);assert.equal(savedAuto.depth.seed,12345);
     assert.deepEqual(savedAuto.routes.map(r=>r.number),[1,2]);assert(savedAuto.routes.every(r=>r.boundaryClearance===5&&r.markerClearance===40));
     assert.equal((await rpc(alice.id,'advance_setup',[])).registration_status,'ready','Server independently accepts generated and edited paths');
@@ -342,7 +343,23 @@ async function main(){
     const depth=JSON.parse(fs.readFileSync(path.join(output,'pseudo-depth.json'),'utf8'));assert(depth.cells.includes(null));
     const fixed={...depth,cells:depth.cells.map(()=>0)};fs.writeFileSync(path.join(output,'fixed-depth.json'),JSON.stringify(fixed));
     await page.locator('#importDepth').setInputFiles(path.join(output,'fixed-depth.json'));await page.waitForFunction(()=>document.getElementById('validation').textContent.includes('Допустима'));
-    await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
+    await page.locator('#next').click();await page.waitForURL('**/welcome.html');await page.locator('.steps a').nth(3).waitFor();assert.equal(await page.locator('.steps a').count(),4);
+    const profilePattern='**/rest/v1/profiles?**';
+    let releaseProfile;const profileGate=new Promise(resolve=>releaseProfile=resolve);
+    const delayProfile=async route=>{await profileGate;await route.continue();};
+    await page.route(profilePattern,delayProfile);
+    try{
+      await page.reload({waitUntil:'domcontentloaded'});
+      assert.equal(await page.locator('main').getAttribute('aria-busy'),'true');
+      assert.equal(await page.locator('.steps a').count(),0,'Loading never shows legacy tool cards');
+      assert(await page.locator('#greeting').isHidden(),'No placeholder greeting before the account loads');
+    }finally{releaseProfile();}
+    await page.locator('.steps a').nth(3).waitFor();await page.unroute(profilePattern,delayProfile);
+    await page.route(profilePattern,route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({message:'Test connection failure'})}));
+    await page.reload();await page.locator('#loadError').waitFor();assert.equal(await page.locator('.steps a').count(),0,'An unavailable account never shows legacy cards');
+    assert(await page.locator('#retryLoad').isEnabled());assert(await page.locator('#logoutBtn').isEnabled());
+    await page.unroute(profilePattern);await page.locator('#retryLoad').click();await page.locator('.steps a').nth(3).waitFor();
+    assert(await page.locator('#loadError').isHidden(),'Retry restores the actual account sections');
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
     await page.goto(base+'/roi-site/setup.html?step=polygon');await page.locator('#renamePolygon').waitFor();
     assert(await page.locator('#polygonName').isEnabled());await page.locator('#polygonName').fill('Новое имя');await page.locator('#renamePolygon').click();
