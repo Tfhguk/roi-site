@@ -230,11 +230,14 @@ async function main(){
     await page.locator('.equipment-id-form input').fill(String(firstMachine.marker_id));await page.locator('.equipment-id-form button').click();
     await page.waitForFunction(id=>document.querySelector('.equipment-id-form input').value===String(id)&&!document.querySelector('main').inert,firstMachine.marker_id);
     await page.locator('#openEquipmentForm').click();await page.locator('#equipmentName').fill('Pagination test');await page.locator('#equipmentMarkerId').fill('48');await page.locator('#equipmentForm button[type=submit]').click();
-    await page.waitForFunction(()=>document.querySelector('.equipment-id-form input')?.value==='48'&&!document.querySelector('main').inert);
-    assert.equal(await page.locator('.equipment-card').count(),1,'Long garage lists use pages');assert(await page.locator('#garagePager').isVisible());
-    await page.locator('#garagePager button:enabled').first().click();await page.locator('#garagePager button:enabled').first().click();
-    assert.equal(await page.locator('.equipment-id-form input').inputValue(),'48');
-    await page.locator('.equipment-card .danger').click();await page.waitForFunction(()=>document.getElementById('garagePager').hidden&&!document.querySelector('main').inert);
+    await page.waitForFunction(()=>document.querySelectorAll('.equipment-card').length===2&&!document.querySelector('main').inert);
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
+      await page.setViewportSize(viewport);await page.waitForTimeout(80);
+      assert.equal(await page.locator('.equipment-card').count(),2,'Several machines remain visible on one page');
+      await checkControlsFit('#equipmentList input,#equipmentList button');
+      await page.screenshot({path:path.join(output,'garage-list-'+viewport.width+'.png')});
+    }
+    await page.locator('.equipment-card').filter({has:page.getByRole('heading',{name:'Pagination test'})}).locator('.danger').click();await page.waitForFunction(()=>document.querySelectorAll('.equipment-card').length===1&&!document.querySelector('main').inert);
     for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
       await page.setViewportSize(viewport);await page.waitForTimeout(80);
       assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Garage fits without page scrolling');

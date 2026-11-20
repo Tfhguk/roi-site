@@ -9,6 +9,7 @@
   let noticeTimer;
   let selectedEquipmentId=null,hoveredEquipmentId=null;
   let reservations=[],garagePage=0,garageCreating=false,propertiesPane="shapes";
+  let garageFocusId=null;
   const pages={shapes:0,vertices:0};
   document.querySelector("main").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
@@ -190,6 +191,12 @@
   $("cancelEquipmentForm").onclick=()=>{garageCreating=false;renderGarage();};
   function renderGarage(){
     $("equipmentCreate").hidden=!garageCreating;$("equipmentList").hidden=garageCreating;$("openEquipmentForm").hidden=garageCreating;
+    const list=$("equipmentList"),short=innerHeight<=500;
+    const columns=Math.max(1,Math.floor(((list.clientWidth||$("garage").clientWidth)+10)/(short?360:340)));
+    const rows=Math.max(1,Math.floor((Math.max(0,list.clientHeight-36)+10)/((short?100:180)+10)));
+    const pageSize=columns*rows;
+    list.style.setProperty("--garage-columns",columns);
+    if(garageFocusId){garagePage=Math.max(0,Math.floor(ownEquipment().findIndex(item=>item.id===garageFocusId)/pageSize));garageFocusId=null;}
     const cards=ownEquipment().map(item=>{
       const card=document.createElement("article");card.className="equipment-card";
       const title=document.createElement("h2");title.textContent=item.name;
@@ -210,7 +217,7 @@
       card.append(image,info,actions);
       return card;
     });
-    pageItems($("equipmentList"),$("garagePager"),cards,"garage",1);$("garagePager").hidden=garageCreating||cards.length<=1;
+    pageItems(list,$("garagePager"),cards,"garage",pageSize);$("garagePager").hidden=garageCreating||cards.length<=pageSize;
     if(!ownEquipment().length)$("equipmentList").append(paragraph("Гараж пока пуст."));
   }
   function renderLists(){
@@ -435,7 +442,7 @@
     if(!$("equipmentName").value.trim())throw Error("Введите название техники.");
     await refreshEquipment();const id=markerValue($("equipmentMarkerId"));
     const item=await AppCloud.rpc("create_equipment_with_id",{p_name:$("equipmentName").value,p_type:$("equipmentType").value,p_marker_id:id});
-    $("equipmentName").value="";$("equipmentMarkerId").value="";await refreshEquipment();garageCreating=false;garagePage=Math.max(0,ownEquipment().findIndex(vehicle=>vehicle.id===item.id));render();notice("Техника сохранена. Скачайте её метку и разместите на машине.");
+    $("equipmentName").value="";$("equipmentMarkerId").value="";await refreshEquipment();garageCreating=false;garageFocusId=item.id;render();notice("Техника сохранена. Скачайте её метку и разместите на машине.");
   });};
   async function save(){
     if(step==="polygon"){
