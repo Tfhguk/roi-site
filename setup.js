@@ -184,7 +184,9 @@
     $("routeClearances").hidden=step!=="routes";$("routeLegend").hidden=step!=="routes";
     $("next").textContent=step==="routes"?"Завершить настройку ✓":step==="zones"&&!AppCloud.routesEnabled?"На главную →":"Далее →";$("back").disabled=step==="polygon";
     $("save").hidden=step==="garage";$("copyPolygon").disabled=!selectedId;
-    $("polygonName").disabled=Boolean(selectedId);
+    const ownsPolygon=currentPolygon()?.owner_id===profile.id;
+    $("polygonName").disabled=Boolean(selectedId)&&!ownsPolygon;
+    $("renamePolygon").hidden=step!=="polygon"||!selectedId||!ownsPolygon;
     $("polygonSelect").replaceChildren(new Option("Новый полигон",""),...polygons.map(p=>new Option(p.name,p.id)));
     $("polygonSelect").value=selectedId||"";
     if(step==="garage")renderGarage();
@@ -433,8 +435,29 @@
   $("newPolygon").onclick=()=>{snapshot();selectedId=null;draft={points:[],closed:false};$("polygonName").value="";$("polygonName").removeAttribute("aria-invalid");changed();render();openEditor();};
   $("copyPolygon").onclick=()=>{if(!currentPolygon())return;snapshot();const p=currentPolygon();draft={points:p.geometry.points.map(p=>newPoint(p)),closed:true};selectedId=null;$("polygonName").value=Array.from(p.name+" — копия").slice(0,100).join("");changed();render();openEditor();};
   $("polygonSelect").onchange=()=>{snapshot();selectedId=$("polygonSelect").value||null;const p=currentPolygon();draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};$("polygonName").value=p?.name||"";$("polygonName").removeAttribute("aria-invalid");selectedVertex=-1;render();openEditor();};
-  $("polygonName").addEventListener("input",()=>{$("polygonName").removeAttribute("aria-invalid");if(!selectedId)changed();});
-  $("finishShape").onclick=()=>{if(!G.validPoints(draft.points))return notice("Граница должна иметь хотя бы три вершины и не пересекаться.",true);snapshot();draft.closed=true;changed();draw();};
+  $("polygonName").addEventListener("input",()=>{$("polygonName").removeAttribute("aria-invalid");if(!selectedId||currentPolygon()?.owner_id===profile.id)changed();});
+  function closePolygonShape(){
+    if(!editable())return;
+    if(!G.validPoints(draft.points))throw Error("Граница должна иметь хотя бы три вершины и не пересекаться.");
+    snapshot();draft.closed=true;changed();draw();
+  }
+  $("finishShape").onclick=()=>run(closePolygonShape);
+  const contextMenu=$("mapContextMenu");
+  function hideMapMenu(){contextMenu.hidden=true;}
+  $("map").addEventListener("contextmenu",event=>{
+    event.preventDefault();if(busy||!editable())return;
+    const action=$("contextFinishShape");action.textContent=step==="polygon"?"Замкнуть фигуру":step==="zones"?"Замкнуть и завершить фигуру":"Завершить траекторию";
+    action.disabled=draft.points.length<(step==="routes"?2:3);
+    contextMenu.hidden=false;
+    const box=contextMenu.getBoundingClientRect();
+    contextMenu.style.left=Math.max(5,Math.min(event.clientX,innerWidth-box.width-5))+"px";
+    contextMenu.style.top=Math.max(5,Math.min(event.clientY,innerHeight-box.height-5))+"px";
+    action.focus({preventScroll:true});
+  });
+  $("contextFinishShape").onclick=()=>{hideMapMenu();run(()=>{if(step==="polygon")closePolygonShape();else applyDraft();$("map").focus({preventScroll:true});});};
+  document.addEventListener("pointerdown",event=>{if(!contextMenu.contains(event.target))hideMapMenu();});
+  document.addEventListener("keydown",event=>{if(!contextMenu.hidden&&event.key==="Escape"){event.preventDefault();event.stopImmediatePropagation();hideMapMenu();$("map").focus({preventScroll:true});}},true);
+  window.addEventListener("resize",hideMapMenu);
   $("clearShape").onclick=()=>{if(!editable())return;snapshot();draft.points=[];draft.closed=false;selectedVertex=-1;changed();render();};
   $("newShape").onclick=()=>{if(draft)return notice("Сначала сохраните текущую фигуру в проект.",true);snapshot();draft={id:uid(),name:step==="zones"?kinds[$("zoneKind").value]:"Траектория "+(ws.routes.length+1),kind:$("zoneKind").value,points:[],closed:false,equipmentId:ownEquipment()[0]?.id,maxDepth:5,maxSlope:2};selectedVertex=-1;$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");render();};
   function applyDraft(){
@@ -490,9 +513,13 @@
   });};
   async function save(){
     if(step==="polygon"){
-      if(selectedId)return;
+      if(selectedId&&currentPolygon()?.owner_id!==profile.id)return;
       const name=$("polygonName").value.trim();
       if(!name||Array.from(name).length>100){openEditor();$("polygonName").setAttribute("aria-invalid","true");requestAnimationFrame(()=>$("polygonName").focus());throw Error("Введите название полигона: от 1 до 100 символов.");}
+      if(selectedId){
+        if(name!==currentPolygon().name){const result=await AppCloud.rpc("rename_polygon",{p_id:selectedId,p_name:name});polygons=polygons.map(item=>item.id===result.id?result:item);}
+        dirty=false;history=[];notice("Название сохранено.");render();return;
+      }
       if(!draft.closed||!G.validPoints(draft.points))throw Error("Замкните корректную границу полигона.");
       const result=await AppCloud.rpc("create_polygon",{p_name:name,p_points:draft.points});
       polygons.unshift(result);selectedId=result.id;draft={points:clone(result.geometry.points),closed:true};
@@ -503,9 +530,10 @@
     dirty=false;history=[];notice("Сохранено на сервере.");render();
   }
   $("save").onclick=()=>run(save);
+  $("renamePolygon").onclick=()=>run(save);
   $("next").onclick=()=>run(async()=>{
     if(step==="polygon"){
-      if(!selectedId)await save();
+      await save();
       profile=await AppCloud.selectPolygon(selectedId);ws=await AppCloud.workspace();await refreshEquipment();dirty=false;draft=null;activate("garage");return;
     }
     if(step==="garage"){

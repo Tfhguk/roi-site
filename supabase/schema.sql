@@ -219,6 +219,18 @@ begin
  return result;
 end $$;
 
+create or replace function public.rename_polygon(p_id uuid,p_name text) returns public.polygons
+language plpgsql security definer set search_path='' as $$
+declare result public.polygons;
+begin
+ if length(btrim(coalesce(p_name,''))) not between 1 and 100 then raise exception 'Введите название полигона: от 1 до 100 символов.'; end if;
+ update public.polygons set name=btrim(p_name) where id=p_id and owner_id=auth.uid() returning * into result;
+ if result.id is null then raise exception 'Изменять название может только владелец полигона.'; end if;
+ return result;
+end $$;
+revoke all on function public.rename_polygon(uuid,text) from public,anon;
+grant execute on function public.rename_polygon(uuid,text) to authenticated;
+
 create or replace function public.select_polygon(p_polygon uuid) returns public.profiles
 language plpgsql security definer set search_path='' as $$
 declare uid uuid:=auth.uid(); result public.profiles; old_polygon uuid;

@@ -206,4 +206,16 @@ end $$;
 revoke all on all functions in schema roi_private from public,anon,authenticated;
 revoke all on function public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int) from public,anon;
 grant execute on function public.create_equipment_with_id(text,text,int),public.set_equipment_marker(uuid,int) to authenticated;
+create or replace function public.rename_polygon(p_id uuid,p_name text) returns public.polygons
+language plpgsql security definer set search_path='' as $$
+declare result public.polygons;
+begin
+ if length(btrim(coalesce(p_name,''))) not between 1 and 100 then raise exception 'Введите название полигона: от 1 до 100 символов.'; end if;
+ update public.polygons set name=btrim(p_name) where id=p_id and owner_id=auth.uid() returning * into result;
+ if result.id is null then raise exception 'Изменять название может только владелец полигона.'; end if;
+ return result;
+end $$;
+revoke all on function public.rename_polygon(uuid,text) from public,anon;
+grant execute on function public.rename_polygon(uuid,text) to authenticated;
+
 commit;

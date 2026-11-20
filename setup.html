@@ -22,7 +22,7 @@
 <section id="drawingLauncher" class="panel" hidden><div class="controls"><button id="openEditor" class="primary">Полигон</button><span id="drawingSummary" class="muted"></span></div><p class="muted">Редактор открывается в отдельном окне. Рисунок целиком помещается на экране.</p></section>
 <div id="editorBackdrop" hidden></div>
 <section id="editorWindow" class="editor-window" role="dialog" aria-modal="false" aria-labelledby="editorTitle" hidden>
-<div class="window-heading"><h2 id="editorTitle">Полигон</h2><label id="polygonNameLabel">Название полигона<input id="polygonName" maxlength="100" required placeholder="Введите название"></label><button id="toggleProperties" aria-controls="editorProperties" aria-expanded="false">Свойства</button><button id="closeEditor" aria-label="Закрыть редактор">Закрыть ✕</button></div>
+<div class="window-heading"><h2 id="editorTitle">Полигон</h2><label id="polygonNameLabel">Название полигона<input id="polygonName" maxlength="100" required placeholder="Введите название"></label><button id="renamePolygon" hidden>Сохранить имя</button><button id="toggleProperties" aria-controls="editorProperties" aria-expanded="false">Свойства</button><button id="closeEditor" aria-label="Закрыть редактор">Закрыть ✕</button></div>
 <section id="editor"><div id="editorToolbar" class="controls panel">
 <label>Основа<select id="background"><option value="grid">Пустое поле</option><option value="camera">Камера</option></select></label>
 <button id="freezeCamera" hidden>Зафиксировать кадр</button><button id="resumeCamera" hidden>Продолжить камеру</button>
@@ -57,4 +57,5 @@
 </main>
 <div id="notificationCenter" aria-label="Уведомления"><div id="message" class="notification" role="status" hidden><span id="notificationIcon" aria-hidden="true">i</span><div><strong id="notificationTitle">Сообщение</strong><p id="messageText"></p></div><button id="dismissNotification" aria-label="Закрыть уведомление">✕</button></div></div>
 <dialog id="stageTutorial" aria-labelledby="tutorialTitle" aria-describedby="tutorialIntro"><div class="tutorial-heading"><span id="tutorialStage" class="muted"></span><button id="tutorialClose" aria-label="Закрыть обучение">✕</button></div><h2 id="tutorialTitle"></h2><div class="tutorial-body"><div id="tutorialAnimation" aria-hidden="true"></div><div><p id="tutorialIntro"></p><ol id="tutorialSteps"></ol></div></div><p id="tutorialError" role="alert" hidden></p><div class="tutorial-footer"><span class="muted">Повторить можно кнопкой «Обучение» внизу.</span><button id="tutorialContinue" class="primary" autofocus>Понятно, начать</button></div></dialog>
+<div id="mapContextMenu" role="menu" aria-label="Действия с фигурой" hidden><button id="contextFinishShape" role="menuitem">Замкнуть фигуру</button></div>
 </body></html>

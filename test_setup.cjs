@@ -121,7 +121,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage']};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name']};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -213,7 +213,9 @@ async function main(){
     await clickAt(500,100);assert.equal(await page.locator('#vertexList button').count(),5,'Insert vertex on existing edge');
     const bounds=await page.locator('#map').boundingBox();
     await page.mouse.move(bounds.x+500*bounds.width/1000,bounds.y+100*bounds.height/700);await page.mouse.down();await page.mouse.move(bounds.x+500*bounds.width/1000,bounds.y+70*bounds.height/700);await page.mouse.up();
-    await page.locator('#finishShape').click();
+    const beforeClose=await page.locator('#vertexList button').count();
+    await page.locator('#map').click({button:'right',position:{x:20,y:20}});await page.locator('#contextFinishShape').click();
+    assert.equal(await page.locator('#vertexList button').count(),beforeClose,'Right mouse click does not add a vertex');
     await page.locator('#closeEditor').click();assert.equal(await page.locator('#editorWindow').isVisible(),false);
     await page.locator('#steps button').first().click();assert.equal(await page.locator('#vertexList button').count(),5,'Opening the current step retains the draft');
     for(const name of ['', '   ']){
@@ -263,7 +265,7 @@ async function main(){
     assert.equal(fs.readFileSync(path.join(output,'setup-markers.pdf')).subarray(0,5).toString(),'%PDF-');
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
     const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]];
-    for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#applyShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
+    for(const [kind,coords]of zoneSpecs){await page.locator('#zoneKind').selectOption(kind);await page.locator('#newShape').click();for(const [x,y]of coords)await clickAt(x,y);await page.locator('#map').click({button:'right',position:{x:20,y:20}});await page.locator('#contextFinishShape').click();await page.locator('#shapeProperties').waitFor({state:'hidden'});}
     await page.locator('#toggleProperties').click();await page.locator('#shapeList .item').first().getByRole('button',{name:'Изменить'}).click();await page.locator('#closeProperties').click();
     for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
       await page.setViewportSize(viewport);await checkEditorViewport();await checkControlsFit('#editorWindow button,#editorWindow input,#editorWindow select');
@@ -324,6 +326,12 @@ async function main(){
     await page.locator('#importDepth').setInputFiles(path.join(output,'fixed-depth.json'));await page.waitForFunction(()=>document.getElementById('validation').textContent.includes('Допустима'));
     await page.locator('#next').click();await page.waitForURL('**/welcome.html');assert.equal(await page.locator('.steps a').count(),4);
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
+    await page.goto(base+'/roi-site/setup.html?step=polygon');await page.locator('#renamePolygon').waitFor();
+    assert(await page.locator('#polygonName').isEnabled());await page.locator('#polygonName').fill('Новое имя');await page.locator('#renamePolygon').click();
+    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Название сохранено'));
+    const renamed=(await asUser(alice.id,'select * from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0];assert.equal(renamed.name,'Новое имя');
+    await assert.rejects(rpc(alice.id,'rename_polygon',[aliceProfile.polygon_id,' ']),/название/);
+    await page.locator('#polygonName').fill('Общий полигон');await page.locator('#renamePolygon').click();await page.waitForFunction(()=>!document.querySelector('main').inert);
     assert.deepEqual([...aliceProfile.tutorial_seen].sort(),['garage','polygon','routes','zones']);
     await assert.rejects(rpc(alice.id,'mark_stage_tutorial',['invalid']),/Неизвестный/);
     const bobTutorial=await rpc(alice.id,'mark_stage_tutorial',['polygon']);assert.equal(bobTutorial.tutorial_seen.filter(stage=>stage==='polygon').length,1,'Tutorial acknowledgements are idempotent');
@@ -358,6 +366,7 @@ async function main(){
     assert.equal(await bobPage.locator('.equipment-card').count(),0,'Bob cannot see Alice equipment');
     await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button[type=submit]').click();await bobPage.locator('.equipment-card').waitFor();
     const bob=accounts.get('bob@example.com');
+    await assert.rejects(rpc(bob.id,'rename_polygon',[aliceProfile.polygon_id,'Stolen name']),/владелец/);
     const aliceEquipment=(await asUser(alice.id,'select * from public.equipment')).rows;const bobEquipment=(await asUser(bob.id,'select * from public.equipment')).rows;
     await assert.rejects(rpc(bob.id,'set_equipment_marker',[aliceEquipment[0].id,49]),/не найдена/,'Other users cannot change equipment IDs');
     await assert.rejects(rpc(bob.id,'set_equipment_marker',[bobEquipment[0].id,aliceEquipment[0].marker_id]),/уже занят/,'Users sharing a polygon cannot reuse equipment IDs');

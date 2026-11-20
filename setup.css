@@ -92,6 +92,9 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 .equipment-route-card .route-list-item button{font-size:.72rem;padding:5px 8px}
 .equipment-route-card>p{margin:6px;font-size:.75rem}
 /* Active setup stages fit the viewport; long lists use page controls. */
+#mapContextMenu{position:fixed;z-index:95;background:var(--panel);border:1px solid #64748b;box-shadow:0 8px 28px #0008;padding:5px;border-radius:9px;max-width:calc(100vw - 10px)}
+#mapContextMenu button{border:0;width:100%;text-align:left;font-size:.85rem;padding:8px 12px}
+#renamePolygon{font-size:.76rem;padding:6px 9px}
 #stageTutorial{color:var(--text);background:var(--panel);border:1px solid #64748b;border-radius:16px;width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:20px;overflow:hidden;box-shadow:0 16px 80px #000a}
 #stageTutorial::backdrop{background:#020617cc;backdrop-filter:blur(4px)}
 .tutorial-heading,.tutorial-footer{display:flex;justify-content:space-between;align-items:center;gap:12px}.tutorial-heading button{padding:3px 9px}.tutorial-heading .muted{font-size:.75rem}
