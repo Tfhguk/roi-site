@@ -193,7 +193,7 @@
     $("drawingLauncher").hidden=step==="garage";$("openEditor").textContent=shortLabels[step];$("editorTitle").textContent=shortLabels[step];
     $("closeEditor").textContent=step==="polygon"?"К списку полигонов":"Закрыть редактор";
     $("polygonNameLabel").hidden=step!=="polygon";
-    $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
+    $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0)+(selectedId?" · зон в пресете: "+(currentPolygon()?.zone_preset?.length||0):""):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
     $("zoneKindLabel").hidden=step!=="zones";$("newShape").hidden=!["zones","routes"].includes(step);
     const hasTransport=ws.zones.some(zone=>zone.kind==="transport");
     $("zoneKind").querySelector('option[value="transport"]').disabled=hasTransport;
@@ -557,6 +557,7 @@
     }else{
       if(draft)applyDraft();
       ws=await AppCloud.saveWorkspace(ws);profile=await AppCloud.me();
+      polygons=polygons.map(p=>p.id===ws.polygon_id&&p.owner_id===profile.id?{...p,zone_preset:clone(ws.zones)}:p);
     }
     dirty=false;history=[];notice("Сохранено на сервере.");render();
   }

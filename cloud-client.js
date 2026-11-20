@@ -72,7 +72,7 @@
     async polygons() { return request("/rest/v1/polygons?select=*&order=created_at.desc"); },
     async equipment() { return request("/rest/v1/equipment?select=*&order=created_at.asc"); },
     async markerReservations(polygonId) { return request("/rest/v1/marker_reservations?polygon_id=eq."+encodeURIComponent(polygonId)+"&select=marker_id"); },
-    async workspace() { const rows = await request("/rest/v1/workspaces?select=*"); return rows[0] || null; },
+    async workspace() { const value=await rpc("get_workspace",{});return value?.user_id?value:null; },
     async advance() { const value = await rpc("advance_setup", {}); return cache(value); },
     async selectPolygon(id) { const value = await rpc("select_polygon", { p_polygon: id }); return cache(value); },
     async saveWorkspace(value) { return rpc("save_workspace", { p_zones: value.zones, p_routes: value.routes, p_depth: value.depth, p_revision: value.revision }); }

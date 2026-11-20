@@ -128,7 +128,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name']};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],get_workspace:[],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name']};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -192,7 +192,7 @@ async function main(){
       await page.addLocatorHandler(page.locator('#stageTutorial[open]'),async()=>{await page.locator('#tutorialContinue').click();});
     }
     async function checkEditorViewport(){
-      await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions'),wide=matchMedia('(min-width:1100px) and (min-height:600px)').matches;return map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&(wide?windowBox.right<=nav.left&&nav.bottom<=actions.top:nav.bottom<=windowBox.top)&&[windowBox,map,actions].every(box=>box.top>=0&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
+      await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions'),wide=matchMedia('(min-width:1100px) and (min-height:600px)').matches,tools=rect('drawingTools');return (!wide||!tools.width||tools.right<=map.left+1)&&map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&(wide?windowBox.right<=nav.left&&nav.bottom<=actions.top:nav.bottom<=windowBox.top)&&[windowBox,map,actions].every(box=>box.top>=0&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
       const layout=await page.evaluate(()=>{const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};};return {nav:rect('steps'),window:rect('editorWindow'),map:rect('map'),actions:rect('actions'),height:innerHeight,width:innerWidth,overflow:getComputedStyle(document.body).overflow};});
       assert.equal(layout.overflow,'hidden');
       const wide=layout.width>=1100&&layout.height>=600;
@@ -409,7 +409,22 @@ async function main(){
     await assert.rejects(rpc(bob.id,'set_equipment_marker',[aliceEquipment[0].id,49]),/не найдена/,'Other users cannot change equipment IDs');
     await assert.rejects(rpc(bob.id,'set_equipment_marker',[bobEquipment[0].id,aliceEquipment[0].marker_id]),/уже занят/,'Users sharing a polygon cannot reuse equipment IDs');
     assert.equal(aliceEquipment.length,1);assert.equal(bobEquipment.length,1);assert.notEqual(aliceEquipment[0].marker_id,bobEquipment[0].marker_id);
-    assert.equal((await asUser(bob.id,'select * from public.workspaces')).rows[0].zones.length,0);
+    const bobWS=await rpc(bob.id,'get_workspace',[]);
+    const template=(await asUser(bob.id,'select zone_preset from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].zone_preset;
+    const zoneGeometry=zones=>zones.map(zone=>({kind:zone.kind,name:zone.name,points:zone.points.map(p=>({x:p.x,y:p.y}))}));
+    assert.deepEqual(zoneGeometry(bobWS.zones),zoneGeometry(template),'Choosing a shared polygon loads its owner zone preset');
+    assert.equal(bobWS.routes.length,0,'Owner routes never enter another account');assert(bobWS.depth.cells.every(v=>v===0),'Owner depth stays private');
+    const ownerPointIds=new Set(template.flatMap(z=>z.points.map(p=>p.markerId)));
+    assert(bobWS.zones.flatMap(z=>z.points).every(p=>!ownerPointIds.has(p.markerId)),'Personal zone copies get unoccupied marker IDs');
+    const reservationCount=(await asUser(bob.id,'select count(*)::int as count from public.marker_reservations')).rows[0].count;
+    assert.deepEqual(await rpc(bob.id,'get_workspace',[]),bobWS,'Reloading keeps the same personal zones and IDs');
+    assert.equal((await asUser(bob.id,'select count(*)::int as count from public.marker_reservations')).rows[0].count,reservationCount);
+    const editedZones=structuredClone(bobWS.zones);editedZones[0].name='Bob personal zone';
+    const bobEdited=await rpc(bob.id,'save_workspace',[JSON.stringify(editedZones),'[]',JSON.stringify(bobWS.depth),bobWS.revision]);
+    assert.equal((await rpc(bob.id,'get_workspace',[])).zones[0].name,'Bob personal zone');
+    assert.deepEqual((await asUser(bob.id,'select zone_preset from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].zone_preset,template,'Other users cannot overwrite the owner preset');
+    await bobPage.locator('#next').click();await bobPage.locator('#zoneKindLabel').waitFor();
+    await bobPage.locator('#toggleProperties').click();assert.equal(await bobPage.locator('#shapeList .item').count(),4,'Inherited zones appear in the zone editor');await bobPage.locator('#closeProperties').click();
     const dozer=await rpc(alice.id,'create_equipment',['Dozer test','excavator']),loader=await rpc(alice.id,'create_equipment',['Loader test','loader']);assert.equal(dozer.type,'bulldozer');
     let roleWorkspace=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
     const boundaryPoints=(await asUser(alice.id,'select geometry from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0].geometry.points;
@@ -429,8 +444,8 @@ async function main(){
     const excessiveBoundary=points(Array.from({length:38},(_,i)=>[500+300*Math.cos(i*Math.PI*2/38),350+300*Math.sin(i*Math.PI*2/38)]));
     await assert.rejects(rpc(bob.id,'create_polygon',['Too many vertices',JSON.stringify(excessiveBoundary)]),/37 вершин/);
     await assert.rejects(rpc(bob.id,'delete_equipment',[aliceEquipment[0].id]),/не найдена/);
-    await rpc(bob.id,'advance_setup',[]); // garage -> zones is permitted
-    await assert.rejects(rpc(bob.id,'advance_setup',[]),/четыре типа/);
+    assert.equal((await asUser(bob.id,'select registration_status from public.profiles')).rows[0].registration_status,'zones');
+    assert.equal((await rpc(bob.id,'advance_setup',[])).registration_status,'routes','Inherited zones satisfy the zone stage');
     const reservations=(await asUser(alice.id,'select marker_id from public.marker_reservations where polygon_id=$1',[aliceProfile.polygon_id])).rows;
     assert.equal(new Set(reservations.map(r=>r.marker_id)).size,reservations.length);
     await page.goto(base+'/roi-site/setup.html?step=routes');await page.locator('#newShape').waitFor();
@@ -453,9 +468,43 @@ async function main(){
     assert.deepEqual(afterPause.routes,beforePause.routes,'Pausing leaves saved routes intact');
     assert.deepEqual(afterPause.depth,beforePause.depth,'Pausing leaves saved depth intact');
     assert.deepEqual(errors,[]);
+    // A preset survives its owner leaving; an initially empty account can load a later publication.
+    const presetOwner=randomUUID(),presetGuest=randomUUID();
+    for(const id of [presetOwner,presetGuest])await db.query('insert into auth.users(id) values($1)',[id]);
+    const presetPolygon=await rpc(presetOwner,'create_polygon',['Preset fixture',JSON.stringify(points([[0,0],[1000,0],[1000,700],[0,700]]))]);
+    const otherPolygon=await rpc(presetOwner,'create_polygon',['Other fixture',JSON.stringify(points([[0,0],[1000,0],[1000,700],[0,700]]))]);
+    await rpc(presetOwner,'select_polygon',[presetPolygon.id]);await rpc(presetGuest,'select_polygon',[presetPolygon.id]);
+    let guestFixture=await rpc(presetGuest,'get_workspace',[]);assert.equal(guestFixture.zones.length,0);assert.equal(guestFixture.zones_initialized,false);
+    const guestMachine=await rpc(presetGuest,'create_equipment',['Private fixture','truck']);
+    let ownerFixture=await rpc(presetOwner,'get_workspace',[]);
+    const fixtureZones=[{id:randomUUID(),kind:'warehouse',name:'Preset warehouse',points:points([[100,100],[300,100],[200,300]])}];
+    ownerFixture=await rpc(presetOwner,'save_workspace',[JSON.stringify(fixtureZones),'[]',JSON.stringify(ownerFixture.depth),ownerFixture.revision]);
+    guestFixture=await rpc(presetGuest,'get_workspace',[]);
+    assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Late owner publication fills an untouched empty workspace');
+    await assert.rejects(asUser(presetGuest,"update public.polygons set zone_preset='[]'"),/permission denied/);
+    await assert.rejects(asUser(presetGuest,'select roi_private.load_zone_preset($1)',[presetOwner]),/permission denied/);
+    await rpc(presetOwner,'select_polygon',[otherPolygon.id]);await rpc(presetOwner,'select_polygon',[presetPolygon.id]);
+    assert.deepEqual((await rpc(presetOwner,'get_workspace',[])).zones,ownerFixture.zones,'Owner returns to the original preset and printed IDs');
+    await rpc(presetGuest,'select_polygon',[otherPolygon.id]);await rpc(presetGuest,'select_polygon',[presetPolygon.id]);
+    guestFixture=await rpc(presetGuest,'get_workspace',[]);
+    assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Switching polygons loads the selected owner preset');
+    assert.deepEqual((await asUser(presetGuest,'select * from public.equipment')).rows,[guestMachine],'Polygon changes preserve personal equipment');
+    guestFixture=await rpc(presetGuest,'save_workspace',['[]','[]',JSON.stringify(guestFixture.depth),guestFixture.revision]);
+    assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'An intentionally saved empty project stays empty');
+    await db.exec(fs.readFileSync(path.join(root,'supabase/polygon-presets.sql'),'utf8'));
+    assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'Repeating the migration keeps private edits');
+    for(const table of ['workspaces','equipment','profiles'])await db.query('delete from public.'+table+' where '+(table==='profiles'?'id':'user_id')+'=any($1::uuid[])',[[presetOwner,presetGuest]]);
+    await db.query('delete from public.polygons where owner_id=$1',[presetOwner]);
+    await db.query('delete from auth.users where id=any($1::uuid[])',[[presetOwner,presetGuest]]);
     for(let i=reservations.length;i<50;i++)await rpc(alice.id,'create_equipment',['Capacity '+i,'robot']);
     await assert.rejects(rpc(alice.id,'create_equipment',['Overflow','robot']),/50 ArUCo/);
     assert.equal((await asUser(alice.id,'select count(*)::int as count from public.marker_reservations')).rows[0].count,50);
+    const capacityGuest=randomUUID();await db.query('insert into auth.users(id) values($1)',[capacityGuest]);
+    await assert.rejects(rpc(capacityGuest,'select_polygon',[aliceProfile.polygon_id]),/50 ArUCo/,'Preset capacity failure rolls back polygon selection');
+    assert.equal((await asUser(capacityGuest,'select * from public.profiles')).rows[0].polygon_id,null);
+    assert.equal((await asUser(capacityGuest,'select * from public.workspaces')).rows.length,0);
+    assert.equal((await asUser(capacityGuest,'select count(*)::int as count from public.marker_reservations')).rows[0].count,50);
+    await db.query('delete from auth.users where id=$1',[capacityGuest]);
     console.log('PASS PostgreSQL: registration trigger, persisted statuses, shared immutable polygons, private equipment/workspaces, distinct marker reservations, revision conflicts, server route validation, RLS and prohibited status updates.');
     console.log('PASS browser: automatic terrain and zone routes, editable generated paths, PostgreSQL validation and persistence after reload, regeneration; viewport-fitted drawing window on desktop/mobile/landscape, fixed navigation, retained draft, notifications and name validation; two accounts, full onboarding, camera, garage, PDF, zones, blocked route, depth JSON and completed registration. No JavaScript errors.');
   }catch(error){
