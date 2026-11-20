@@ -32,6 +32,12 @@
   function fitStage(){
     if($("editorWindow").hidden)return;
     const box=$("canvasFit"),stage=box.querySelector(".stage");
+    if(wideLayout.matches&&(step==="polygon"||step==="zones")){
+      const body=$("editorBody"),fieldWidth=Math.min((box.clientHeight-2)*10/7,body.clientWidth-294);
+      const toolsWidth=Math.max(280,Math.min(360,body.clientWidth-fieldWidth-16));
+      body.style.setProperty("--drawing-tools-width",Math.floor(toolsWidth)+"px");
+      body.classList.toggle("compact-tools",body.clientHeight<440||toolsWidth<260);
+    }
     const width=Math.max(1,Math.min(box.clientWidth-2,(box.clientHeight-2)*10/7));
     stage.style.width=width+"px";stage.style.height=width*7/10+"px";
   }

@@ -218,7 +218,7 @@ async function main(){
     assert.equal((await asUser(alice.id,'select registration_status from public.profiles')).rows[0].registration_status,'polygon');
     assert.equal(await page.locator('#editorWindow').isVisible(),false,'New polygon waits for an explicit button click');
     await page.locator('#openEditor').click();await checkEditorViewport();
-    for(const viewport of [{width:1100,height:600},{width:1366,height:768},{width:1024,height:768},{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){
+    for(const viewport of [{width:1100,height:600},{width:1366,height:768},{width:1920,height:1080},{width:1024,height:768},{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){
       await page.setViewportSize(viewport);await checkEditorViewport();await checkControlsFit('#steps button,#actions button,#actions summary,#editorWindow button,#editorWindow input,#editorWindow select');
       await page.screenshot({path:path.join(output,'setup-window-'+viewport.width+'.png')});
     }

@@ -207,12 +207,20 @@ body.editor-open #notificationCenter{overflow:hidden}
  #editorWindow .controls.panel{padding:10px 12px;background:#142337;border-radius:10px}
  #editorWindow .controls.panel>label{flex-direction:row;align-items:center;font-weight:600}
  #editorWindow .controls.panel select{padding:7px}
- #editorWindow.drawing-layout #editorBody{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px}
- #drawingTools{display:flex;flex-direction:column;min-width:0;min-height:0;padding:12px 4px 0 0}
- #drawingTools #editorHint{font-size:.9rem;line-height:1.7;margin:0 0 18px;color:#cbd5e1;white-space:pre-line}
- #drawingTools #editorToolsBottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:auto;padding-bottom:6px}
- #drawingTools #editorToolsBottom button{font-size:.79rem;line-height:1.35;padding:12px 7px;min-height:56px}
- #drawingTools #zoneChecklist{grid-column:1/-1;line-height:1.4;margin:0;font-size:.72rem}
+ #editorWindow.drawing-layout #editorBody{display:grid;grid-template-columns:var(--drawing-tools-width,280px) minmax(0,1fr);gap:14px}
+ #drawingTools{display:flex;flex-direction:column;min-width:0;min-height:0;padding:12px 12px 0 0;justify-content:center}
+ #drawingTools h3{font-size:1.25rem;margin:0 0 18px}
+ #drawingTools #editorHint{font-size:1.1rem;line-height:1.65;margin:0 0 24px;color:#e2e8f0;white-space:pre-line}
+ #drawingTools #editorToolsBottom{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0;padding:0}
+ #drawingTools #editorToolsBottom button{font-size:1rem;line-height:1.35;padding:14px 10px;min-height:68px}
+ #drawingTools #zoneChecklist{grid-column:1/-1;line-height:1.4;margin:4px 0 0;font-size:.82rem}
+ #editorWindow.drawing-layout .canvas-fit{justify-content:flex-start}
+ #editorBody.compact-tools #drawingTools{padding-top:0;padding-right:6px}
+ #editorBody.compact-tools #drawingTools h3{font-size:1.05rem;margin-bottom:10px}
+ #editorBody.compact-tools #editorHint{font-size:.95rem;line-height:1.4;margin-bottom:14px}
+ #editorBody.compact-tools #editorToolsBottom{gap:8px}
+ #editorBody.compact-tools #editorToolsBottom button{font-size:.88rem;min-height:50px;padding:10px 7px}
+ #editorBody.compact-tools #zoneChecklist{font-size:.72rem;line-height:1.3}
  #editorWindow.drawing-layout .workspace{margin:0;gap:0}
  #editorWindow.drawing-layout .stage{border-radius:18px}
  #editorWindow.drawing-layout aside#editorProperties{top:56px;bottom:14px;right:14px}
