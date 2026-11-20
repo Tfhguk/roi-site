@@ -12,9 +12,9 @@
 <div class="heading"><div><p id="registrationStatus" class="muted"></p><h1 id="title">Загрузка…</h1><p id="description"></p></div><span id="saveState" class="badge"></span></div>
 <section id="polygonTools" class="panel" hidden><div class="controls">
 <label>Общие полигоны<select id="polygonSelect"><option value="">Новый полигон</option></select></label>
-<button id="newPolygon">Новый полигон</button><button id="copyPolygon">Создать редактируемую копию</button>
+<button id="newPolygon">Новый полигон</button><button id="copyPolygon">Создать редактируемую копию</button><button id="deletePolygon" hidden>Удалить мой пресет</button>
 </div>
-<p class="muted">Сохранённые полигоны доступны другим пользователям. При первом выборе загружаются зоны владельца; техника у каждого своя. Свои зоны можно изменять. Для изменения границы создайте копию полигона. ID выдаёт сервер: всего 50 на полигон для границы, техники и зон.</p></section>
+<p class="muted">Владелец изменяет границу и зоны оригинала. «Далее» загружает актуальный пресет, заменяя личные зоны и траектории; техника сохраняется. Чужой оригинал можно просматривать, а для своей границы — создать копию. Удалённый пресет недоступен для нового выбора; уже загруженные проекты остаются. Всего 50 ID на полигон.</p></section>
 <section id="garage" hidden><div class="garage-heading"><h2>Мой гараж</h2><button id="openEquipmentForm">Добавить технику</button></div><div id="equipmentCreate" class="panel"><form id="equipmentForm" class="controls">
 <label>Название<input id="equipmentName" maxlength="100" required placeholder="Например, Самосвал 1"></label>
 <label>Тип<select id="equipmentType"><option value="truck">Самосвал</option><option value="bulldozer">Бульдозер</option><option value="loader">Погрузчик</option><option value="charging_station">Зарядная станция</option><option value="other">Иное</option></select></label>

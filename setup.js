@@ -13,7 +13,7 @@
   const pages={shapes:0,vertices:0};
   let tutorialStage=null,tutorialSaving=false,tutorialReturnFocus=null;
   const tutorials={
-    polygon:{title:"Выберите площадку для работы",intro:"Полигон — внешняя граница всей площадки. Каждая его вершина получает свою метку.",steps:["Выберите готовый полигон в списке или нажмите «Новый полигон» и задайте название.","Кликами обведите границу. Точки можно двигать; нажатие на ребро добавляет вершину. Для правки готового полигона создайте копию.","Нажмите «Замкнуть границу», затем «Далее». Сохранённый полигон будет доступен другим пользователям."]},
+    polygon:{title:"Выберите площадку для работы",intro:"Полигон — внешняя граница всей площадки. Каждая его вершина получает свою метку.",steps:["Выберите готовый полигон в списке или нажмите «Новый полигон» и задайте название.","Кликами обведите границу. Точки можно двигать; нажатие на ребро добавляет вершину. Владелец меняет оригинал, остальные создают свою копию для изменения границы.","Нажмите «Замкнуть границу», затем «Далее». Повторный выбор чужого пресета загружает его актуальные зоны вместо ваших правок. Гараж сохраняется."]},
     garage:{title:"Добавьте свою технику",intro:"В гараже хранятся только ваши машины. ID связывает машину с напечатанной меткой.",steps:["Нажмите «Добавить технику». Укажите название и тип машины.","Выберите свободный ID от 0 до 49 или оставьте поле пустым. Номера границ, зон и другой техники этого полигона уже заняты.","Добавьте машину, скачайте её метку и закрепите на машине. ID можно изменить в карточке; после смены распечатайте новую метку. Затем нажмите «Далее»."]},
     zones:{title:"Отметьте места работы техники",intro:"Все рабочие зоны должны находиться внутри транспортной зоны — области, где разрешено движение.",steps:["Выберите тип «Транспортная зона», нажмите «Новая зона» и обведите всю доступную для движения площадку.","Задайте имя и нажмите «Сохранить фигуру в проект». Таким же способом создайте внутри неё склад, зарядную станцию и зону добычи.","Двигайте точки или добавляйте их нажатием на ребро. Список зон доступен в «Зоны и точки». Сохраните на сервере и перейдите на главную."]},
     routes:{title:"Постройте и проверьте пути",intro:"Траектории учитывают транспортную область, глубины, перепады и отступы от меток.",steps:["Выберите ограничения и нажмите «Построить автоматически». Для теста можно сгенерировать карту глубины.","Наведите курсор на карточку машины или нажмите её, чтобы увидеть точки её путей. Кнопка «Изменить» позволяет передвигать точки.","Исправьте недопустимые участки, сохраните изменения и нажмите «Завершить настройку»."]}
@@ -112,7 +112,7 @@
   function ownEquipment(){return equipment.filter(item=>item.polygon_id===profile.polygon_id);}
   function permitted(target){return (target!=="routes"||AppCloud.routesEnabled)&&stages.indexOf(target)<= (profile.registration_status==="ready"?3:stages.indexOf(profile.registration_status));}
   function newPoint(p){return {id:uid(),x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10};}
-  function editable(){return draft && !(step==="polygon"&&selectedId);}
+  function editable(){return draft && !(step==="polygon"&&selectedId&&(currentPolygon()?.owner_id!==profile.id||currentPolygon()?.is_archived));}
   function allMarkers(){return [...(currentPolygon()?.geometry.points||[]),...(ws?.zones||[]).flatMap(z=>z.points),...ownEquipment().map(e=>({markerId:e.marker_id}))].filter(p=>Number.isInteger(p.markerId));}
   function tutorialPicture(stage){
     const start='<svg viewBox="0 0 480 260" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="tutorialGrid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#334155"/></pattern></defs><rect width="480" height="260" rx="14" fill="#101e31"/><rect width="480" height="260" fill="url(#tutorialGrid)"/>';
@@ -181,7 +181,7 @@
   function render(){
     if(selectedEquipmentId&&!ownEquipment().some(vehicle=>vehicle.id===selectedEquipmentId))selectedEquipmentId=null;
     hoveredEquipmentId=null;
-    $("title").textContent=titles[step];$("description").textContent=descriptions[step];
+    $("title").textContent=titles[step];$("description").textContent=descriptions[step]+(currentPolygon()?.is_archived?" Пресет удалён владельцем из общего списка. Этот проект сохраняется как личная рабочая копия.":"");
     document.body.dataset.step=step;
     $("editorWindow").classList.toggle("drawing-layout",step==="polygon"||step==="zones");
     (step==="polygon"||step==="zones"?$("editorWindow"):$("editorPropertiesSlot")).append($("editorProperties"));
@@ -199,7 +199,7 @@
     $("zoneKind").querySelector('option[value="transport"]').disabled=hasTransport;
     if(hasTransport&&$("zoneKind").value==="transport"&&!draft)$("zoneKind").value="warehouse";
     $("newShape").textContent=step==="zones"?"Новая зона":"Новая траектория";
-    $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=Boolean(selectedId)||!draft||draft.points.length<3;
+    $("finishShape").hidden=step!=="polygon";$("finishShape").disabled=!editable()||draft.points.length<3;
     $("clearShape").disabled=!editable();$("deleteVertex").disabled=!editable()||selectedVertex<0;
     $("depthPanel").hidden=step!=="routes";$("shapeProperties").hidden=!draft||step==="polygon";
     $("editorWindow").classList.toggle("routes-layout",step==="routes");
@@ -213,10 +213,13 @@
     $("routeClearances").hidden=step!=="routes";$("routeLegend").hidden=step!=="routes";
     $("next").textContent=step==="routes"?"Завершить настройку ✓":step==="zones"&&!AppCloud.routesEnabled?"На главную →":"Далее →";$("back").disabled=step==="polygon";
     $("save").hidden=step==="garage";$("copyPolygon").disabled=!selectedId;
-    const ownsPolygon=currentPolygon()?.owner_id===profile.id;
+    const ownsPolygon=currentPolygon()?.owner_id===profile.id&&!currentPolygon()?.is_archived;
     $("polygonName").disabled=Boolean(selectedId)&&!ownsPolygon;
     $("renamePolygon").hidden=step!=="polygon"||!selectedId||!ownsPolygon;
-    $("polygonSelect").replaceChildren(new Option("Новый полигон",""),...polygons.map(p=>new Option(p.name,p.id)));
+    $("deletePolygon").hidden=!selectedId||!ownsPolygon;
+    $("save").disabled=step==="polygon"&&Boolean(selectedId)&&!ownsPolygon;
+    $("next").disabled=step==="polygon"&&Boolean(currentPolygon()?.is_archived);
+    $("polygonSelect").replaceChildren(new Option("Новый полигон",""),...polygons.filter(p=>!p.is_archived||p.id===selectedId).map(p=>new Option(p.name+(p.is_archived?" (пресет удалён)":""),p.id)));
     $("polygonSelect").value=selectedId||"";
     if(step==="garage")renderGarage();
     if(draft&&step!=="polygon"){
@@ -464,7 +467,13 @@
   $("resumeCamera").onclick=()=>{$("frozen").hidden=true;$("camera").hidden=false;$("freezeCamera").hidden=false;$("resumeCamera").hidden=true;};
   $("newPolygon").onclick=()=>{snapshot();selectedId=null;draft={points:[],closed:false};$("polygonName").value="";$("polygonName").removeAttribute("aria-invalid");changed();render();openEditor();};
   $("copyPolygon").onclick=()=>{if(!currentPolygon())return;snapshot();const p=currentPolygon();draft={points:p.geometry.points.map(p=>newPoint(p)),closed:true};selectedId=null;$("polygonName").value=Array.from(p.name+" — копия").slice(0,100).join("");changed();render();openEditor();};
-  $("polygonSelect").onchange=()=>{snapshot();selectedId=$("polygonSelect").value||null;const p=currentPolygon();draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};$("polygonName").value=p?.name||"";$("polygonName").removeAttribute("aria-invalid");selectedVertex=-1;render();openEditor();};
+  $("polygonSelect").onchange=()=>run(async()=>{const id=$("polygonSelect").value||null;const latest=await AppCloud.polygons(),p=latest.find(item=>item.id===id);if(id&&(!p||p.is_archived))throw Error("Этот пресет уже удалён владельцем. Выберите другой.");snapshot();polygons=latest;selectedId=id;draft={points:clone(p?.geometry.points||[]),closed:Boolean(p)};$("polygonName").value=p?.name||"";$("polygonName").removeAttribute("aria-invalid");selectedVertex=-1;dirty=false;render();openEditor();});
+  $("deletePolygon").onclick=()=>run(async()=>{
+    const polygon=currentPolygon();if(!polygon||polygon.owner_id!==profile.id)return;
+    if(!confirm("Удалить пресет «"+polygon.name+"» из общего списка? Уже загруженные проекты и техника пользователей сохранятся."))return;
+    await AppCloud.rpc("delete_polygon_preset",{p_id:polygon.id});
+    polygons=await AppCloud.polygons();selectedId=null;draft={points:[],closed:false};$("polygonName").value="";dirty=false;history=[];render();closeEditor();notice("Пресет удалён из общего списка.");
+  });
   $("polygonName").addEventListener("input",()=>{$("polygonName").removeAttribute("aria-invalid");if(!selectedId||currentPolygon()?.owner_id===profile.id)changed();});
   function closePolygonShape(){
     if(!editable())return;
@@ -548,8 +557,10 @@
       const name=$("polygonName").value.trim();
       if(!name||Array.from(name).length>100){openEditor();$("polygonName").setAttribute("aria-invalid","true");requestAnimationFrame(()=>$("polygonName").focus());throw Error("Введите название полигона: от 1 до 100 символов.");}
       if(selectedId){
-        if(name!==currentPolygon().name){const result=await AppCloud.rpc("rename_polygon",{p_id:selectedId,p_name:name});polygons=polygons.map(item=>item.id===result.id?result:item);}
-        dirty=false;history=[];notice("Название сохранено.");render();return;
+        if(!draft.closed||!G.validPoints(draft.points))throw Error("Замкните корректную границу полигона.");
+        const result=await AppCloud.rpc("update_polygon",{p_id:selectedId,p_name:name,p_points:draft.points,p_previous:currentPolygon().geometry});
+        polygons=polygons.map(item=>item.id===result.id?result:item);draft={points:clone(result.geometry.points),closed:true};
+        dirty=false;history=[];notice("Пресет полигона обновлён.");render();return;
       }
       if(!draft.closed||!G.validPoints(draft.points))throw Error("Замкните корректную границу полигона.");
       const result=await AppCloud.rpc("create_polygon",{p_name:name,p_points:draft.points});
@@ -566,7 +577,7 @@
   $("next").onclick=()=>run(async()=>{
     if(step==="polygon"){
       await save();
-      profile=await AppCloud.selectPolygon(selectedId);ws=await AppCloud.workspace();await refreshEquipment();dirty=false;draft=null;activate("garage");return;
+      profile=await AppCloud.selectPolygon(selectedId);polygons=await AppCloud.polygons();ws=await AppCloud.workspace();await refreshEquipment();dirty=false;draft=null;activate("garage");return;
     }
     if(step==="garage"){
       if(!ownEquipment().length)throw Error("Добавьте хотя бы одну единицу техники.");

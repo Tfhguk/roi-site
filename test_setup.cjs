@@ -128,7 +128,7 @@ async function main(){
   async function asUser(id,sql,args=[]){return serial(()=>db.transaction(async tx=>{
     await tx.exec('set local role authenticated');await tx.query("select set_config('request.jwt.claim.sub',$1,true)",[id]);return tx.query(sql,args);
   }));}
-  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],get_workspace:[],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name']};
+  const rpcParams={create_polygon:['p_name','p_points'],select_polygon:['p_polygon'],get_workspace:[],create_equipment:['p_name','p_type'],create_equipment_with_id:['p_name','p_type','p_marker_id'],set_equipment_marker:['p_id','p_marker_id'],delete_equipment:['p_id'],save_workspace:['p_zones','p_routes','p_depth','p_revision'],advance_setup:[],mark_stage_tutorial:['p_stage'],rename_polygon:['p_id','p_name'],update_polygon:['p_id','p_name','p_points','p_previous'],delete_polygon_preset:['p_id']};
   async function rpc(id,name,args){return (await asUser(id,'select * from public.'+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+')',args)).rows[0];}
   function json(response,status,data){response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(data));}
   let base,routesEnabled=true;
@@ -363,8 +363,15 @@ async function main(){
     const aliceProfile=(await asUser(alice.id,'select * from public.profiles')).rows[0];assert.equal(aliceProfile.registration_status,'ready');
     await page.goto(base+'/roi-site/setup.html?step=polygon');await page.locator('#renamePolygon').waitFor();
     assert(await page.locator('#polygonName').isEnabled());await page.locator('#polygonName').fill('Новое имя');await page.locator('#renamePolygon').click();
-    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Название сохранено'));
+    await page.waitForFunction(()=>document.getElementById('messageText').textContent.includes('Пресет полигона обновлён'));
     const renamed=(await asUser(alice.id,'select * from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0];assert.equal(renamed.name,'Новое имя');
+    const ownerMap=await page.locator('#map').boundingBox(),firstBoundary=renamed.geometry.points[0];
+    await page.mouse.move(ownerMap.x+firstBoundary.x*ownerMap.width/1000,ownerMap.y+firstBoundary.y*ownerMap.height/700);await page.mouse.down();
+    await page.mouse.move(ownerMap.x+(firstBoundary.x-5)*ownerMap.width/1000,ownerMap.y+firstBoundary.y*ownerMap.height/700);await page.mouse.up();
+    await page.locator('#save').click();await page.waitForFunction(()=>document.getElementById('saveState').textContent==='Изменения сохранены');
+    const ownerMoved=(await asUser(alice.id,'select * from public.polygons where id=$1',[aliceProfile.polygon_id])).rows[0];
+    assert(ownerMoved.geometry.points[0].x<firstBoundary.x,'Owner can drag and save the published boundary');
+    assert.equal(ownerMoved.geometry.points[0].markerId,firstBoundary.markerId,'Moving a published vertex preserves its marker ID');
     await assert.rejects(rpc(alice.id,'rename_polygon',[aliceProfile.polygon_id,' ']),/название/);
     await page.locator('#polygonName').fill('Общий полигон');await page.locator('#renamePolygon').click();await page.waitForFunction(()=>!document.querySelector('main').inert);
     assert.deepEqual([...aliceProfile.tutorial_seen].sort(),['garage','polygon','routes','zones']);
@@ -400,7 +407,7 @@ async function main(){
     const latest=(await asUser(alice.id,'select * from public.workspaces')).rows[0];
     await rpc(alice.id,'save_workspace',[JSON.stringify(latest.zones),JSON.stringify(latest.routes),JSON.stringify(aliceWS.depth),latest.revision]);await rpc(alice.id,'advance_setup',[]);
     const second=await browser.newContext({viewport:{width:1400,height:1100}}),bobPage=await second.newPage();bobPage.on('pageerror',e=>errors.push(e.message));
-    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);assert.equal(await bobPage.locator('#editorWindow').isVisible(),true,'Loading a shared polygon opens its window');assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
+    await register(bobPage,'bob@example.com','Bob');await bobPage.locator('#polygonSelect').selectOption(aliceProfile.polygon_id);await bobPage.locator('#editorWindow').waitFor({state:'visible'});assert.equal(await bobPage.locator('#editorWindow').isVisible(),true,'Loading a shared polygon opens its window');assert.equal(await bobPage.locator('#polygonName').inputValue(),'Общий полигон');await bobPage.locator('#next').click();await bobPage.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await bobPage.locator('.equipment-card').count(),0,'Bob cannot see Alice equipment');
     await bobPage.locator('#equipmentName').fill('Самосвал Bob');await bobPage.locator('#equipmentForm button[type=submit]').click();await bobPage.locator('.equipment-card').waitFor();
     const bob=accounts.get('bob@example.com');
@@ -481,6 +488,28 @@ async function main(){
     ownerFixture=await rpc(presetOwner,'save_workspace',[JSON.stringify(fixtureZones),'[]',JSON.stringify(ownerFixture.depth),ownerFixture.revision]);
     guestFixture=await rpc(presetGuest,'get_workspace',[]);
     assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Late owner publication fills an untouched empty workspace');
+    const originalGeometry=presetPolygon.geometry,updatedBoundary=structuredClone(originalGeometry.points);updatedBoundary[3].y=690;
+    await assert.rejects(rpc(presetGuest,'update_polygon',[presetPolygon.id,'Stolen',JSON.stringify(updatedBoundary),JSON.stringify(originalGeometry)]),/владелец/);
+    await assert.rejects(rpc(presetGuest,'delete_polygon_preset',[presetPolygon.id]),/владелец/);
+    const updatedOriginal=await rpc(presetOwner,'update_polygon',[presetPolygon.id,'Updated preset',JSON.stringify(updatedBoundary),JSON.stringify(originalGeometry)]);
+    assert.deepEqual(updatedOriginal.geometry.points.map(p=>p.markerId),originalGeometry.points.map(p=>p.markerId));
+    const insertedBoundary=structuredClone(updatedBoundary);insertedBoundary.splice(1,0,...points([[500,0]]));
+    const insertedOriginal=await rpc(presetOwner,'update_polygon',[presetPolygon.id,'Updated preset',JSON.stringify(insertedBoundary),JSON.stringify(updatedOriginal.geometry)]);
+    assert.equal(insertedOriginal.geometry.points.length,5,'Owner can add published vertices');
+    const removedMarker=insertedOriginal.geometry.points[1].markerId;
+    const removedOriginal=await rpc(presetOwner,'update_polygon',[presetPolygon.id,'Updated preset',JSON.stringify(updatedBoundary),JSON.stringify(insertedOriginal.geometry)]);
+    assert.equal(removedOriginal.geometry.points.length,4,'Owner can delete published vertices');
+    assert.equal((await asUser(presetOwner,'select * from public.marker_reservations where polygon_id=$1 and marker_id=$2',[presetPolygon.id,removedMarker])).rows.length,0,'Deleting a vertex releases its marker');
+    const invalidBoundary=points([[800,400],[950,400],[950,600],[800,600]]);
+    await assert.rejects(rpc(presetOwner,'update_polygon',[presetPolygon.id,'Invalid shrink',JSON.stringify(invalidBoundary),JSON.stringify(removedOriginal.geometry)]),/сохранённых зон/,'An original boundary must contain its published zones');
+    await assert.rejects(rpc(presetOwner,'update_polygon',[presetPolygon.id,'Stale',JSON.stringify(updatedBoundary),JSON.stringify(originalGeometry)]),/другой вкладке/);
+    const changedPreset=structuredClone(ownerFixture.zones);changedPreset[0].name='Updated warehouse';
+    ownerFixture=await rpc(presetOwner,'save_workspace',[JSON.stringify(changedPreset),'[]',JSON.stringify(ownerFixture.depth),ownerFixture.revision]);
+    const localEdit=structuredClone(guestFixture.zones);localEdit[0].name='Private changes';
+    guestFixture=await rpc(presetGuest,'save_workspace',[JSON.stringify(localEdit),'[]',JSON.stringify(guestFixture.depth),guestFixture.revision]);
+    await rpc(presetGuest,'select_polygon',[presetPolygon.id]);guestFixture=await rpc(presetGuest,'get_workspace',[]);
+    assert.deepEqual(zoneGeometry(guestFixture.zones),zoneGeometry(ownerFixture.zones),'Explicitly reselecting the same preset loads owner updates over private edits');
+    assert.deepEqual((await asUser(presetGuest,'select * from public.equipment')).rows,[guestMachine]);
     await assert.rejects(asUser(presetGuest,"update public.polygons set zone_preset='[]'"),/permission denied/);
     await assert.rejects(asUser(presetGuest,'select roi_private.load_zone_preset($1)',[presetOwner]),/permission denied/);
     await rpc(presetOwner,'select_polygon',[otherPolygon.id]);await rpc(presetOwner,'select_polygon',[presetPolygon.id]);
@@ -493,6 +522,10 @@ async function main(){
     assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'An intentionally saved empty project stays empty');
     await db.exec(fs.readFileSync(path.join(root,'supabase/polygon-presets.sql'),'utf8'));
     assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'Repeating the migration keeps private edits');
+    await rpc(presetOwner,'delete_polygon_preset',[presetPolygon.id]);
+    await assert.rejects(rpc(presetGuest,'select_polygon',[presetPolygon.id]),/удалён/);
+    assert.equal((await rpc(presetGuest,'get_workspace',[])).zones.length,0,'Deleting a preset preserves a previously loaded workspace');
+    assert.deepEqual((await asUser(presetGuest,'select * from public.equipment')).rows,[guestMachine],'Deleting a preset keeps personal equipment');
     for(const table of ['workspaces','equipment','profiles'])await db.query('delete from public.'+table+' where '+(table==='profiles'?'id':'user_id')+'=any($1::uuid[])',[[presetOwner,presetGuest]]);
     await db.query('delete from public.polygons where owner_id=$1',[presetOwner]);
     await db.query('delete from auth.users where id=any($1::uuid[])',[[presetOwner,presetGuest]]);
@@ -505,7 +538,7 @@ async function main(){
     assert.equal((await asUser(capacityGuest,'select * from public.workspaces')).rows.length,0);
     assert.equal((await asUser(capacityGuest,'select count(*)::int as count from public.marker_reservations')).rows[0].count,50);
     await db.query('delete from auth.users where id=$1',[capacityGuest]);
-    console.log('PASS PostgreSQL: registration trigger, persisted statuses, shared immutable polygons, private equipment/workspaces, distinct marker reservations, revision conflicts, server route validation, RLS and prohibited status updates.');
+    console.log('PASS PostgreSQL: registration trigger, persisted statuses, owner-editable polygon presets, preset reloads and deletion, private equipment/workspaces, distinct marker reservations, revision conflicts, server route validation, RLS and prohibited status updates.');
     console.log('PASS browser: automatic terrain and zone routes, editable generated paths, PostgreSQL validation and persistence after reload, regeneration; viewport-fitted drawing window on desktop/mobile/landscape, fixed navigation, retained draft, notifications and name validation; two accounts, full onboarding, camera, garage, PDF, zones, blocked route, depth JSON and completed registration. No JavaScript errors.');
   }catch(error){
     if(browser)for(const context of browser.contexts())for(const page of context.pages()){

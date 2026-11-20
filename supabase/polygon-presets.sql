@@ -1,6 +1,7 @@
 -- Zone templates contain only the polygon owner's zones, never their garage or routes.
 begin;
 alter table public.polygons add column if not exists zone_preset jsonb not null default '[]';
+alter table public.polygons add column if not exists is_archived boolean not null default false;
 alter table public.workspaces add column if not exists zones_initialized boolean not null default false;
 
 -- Keep existing personal work intact. Seed templates only from their owner's workspace.
@@ -51,7 +52,7 @@ declare uid uuid:=auth.uid(); result public.profiles; old_polygon uuid;
 begin
  if uid is null then raise exception 'Войдите в аккаунт.'; end if;
  select polygon_id into old_polygon from public.profiles where id=uid for update;
- perform 1 from public.polygons where id=p_polygon;if not found then raise exception 'Полигон не найден.'; end if;
+ perform 1 from public.polygons where id=p_polygon and not is_archived;if not found then raise exception 'Полигон удалён из пресетов или не найден.'; end if;
  if old_polygon is distinct from p_polygon then
   -- Printed owner-template IDs stay reserved even when the owner selects another polygon.
   delete from public.marker_reservations r where r.owner_id=uid and r.purpose='zone'
@@ -61,12 +62,59 @@ begin
   insert into public.workspaces(user_id,polygon_id,depth) values(uid,p_polygon,jsonb_build_object('version',1,'width',1000,'height',700,'cols',20,'rows',14,'unit','условные единицы','cells',to_jsonb(array_fill(0,array[280]))))
    on conflict(user_id) do update set polygon_id=excluded.polygon_id,zones='[]',routes='[]',zones_initialized=false,depth=excluded.depth,revision=public.workspaces.revision+1,updated_at=now();
  end if;
+ -- An explicit selection reloads the latest original, including an empty preset.
+ -- The owner's active workspace is kept so saving a boundary does not discard their zones.
+ if old_polygon=p_polygon and exists(select 1 from public.polygons where id=p_polygon and owner_id<>uid) then
+  delete from public.marker_reservations where polygon_id=p_polygon and owner_id=uid and purpose='zone';
+  update public.workspaces set zones='[]',routes='[]',zones_initialized=false,revision=revision+1,updated_at=now() where user_id=uid;
+ end if;
  perform roi_private.load_zone_preset(uid);
  update public.profiles set polygon_id=p_polygon,registration_status='garage' where id=uid returning * into result;
  return result;
 end $$;
 revoke all on function public.select_polygon(uuid) from public,anon;
 grant execute on function public.select_polygon(uuid) to authenticated;
+
+create or replace function public.update_polygon(p_id uuid,p_name text,p_points jsonb,p_previous jsonb) returns public.polygons
+language plpgsql security definer set search_path='' as $$
+declare uid uuid:=auth.uid(); polygon public.polygons; result_points jsonb:='[]'; point jsonb; refs uuid[]:=array[]::uuid[]; mid int;
+begin
+ if uid is null then raise exception 'Войдите в аккаунт.'; end if;
+ perform 1 from public.profiles where id=uid for update;
+ select * into polygon from public.polygons where id=p_id for update;
+ if polygon.id is null or polygon.owner_id<>uid then raise exception 'Изменять оригинал может только владелец полигона.'; end if;
+ if polygon.is_archived then raise exception 'Полигон удалён из пресетов. Создайте свою копию.'; end if;
+ if polygon.geometry is distinct from p_previous then raise exception 'Граница изменена в другой вкладке. Обновите страницу.'; end if;
+ if length(btrim(coalesce(p_name,''))) not between 1 and 100 then raise exception 'Введите название полигона: от 1 до 100 символов.'; end if;
+ if not roi_private.shape_ok(p_points) then raise exception 'Нужен простой многоугольник без самопересечений.'; end if;
+ if jsonb_array_length(p_points)>37 then raise exception 'Максимум 37 вершин границы.'; end if;
+ if exists(select 1 from jsonb_array_elements(polygon.zone_preset) z where not roi_private.path_ok(z->'points',p_points,null,1000,1000,true)) then
+  raise exception 'Часть сохранённых зон оказалась за новой границей. Сначала измените или удалите эти зоны и сохраните их.';
+ end if;
+ for point in select value from jsonb_array_elements(p_points) loop
+  if (point->>'id')::uuid is null or (point->>'id')::uuid=any(refs) then raise exception 'Повторные или некорректные вершины.'; end if;
+  refs:=array_append(refs,(point->>'id')::uuid);
+ end loop;
+ delete from public.marker_reservations where polygon_id=p_id and purpose='boundary' and not(reference_id=any(refs));
+ for point in select value from jsonb_array_elements(p_points) loop
+  mid:=roi_private.allocate_marker(p_id,uid,'boundary',(point->>'id')::uuid);
+  result_points:=result_points||jsonb_build_array(jsonb_build_object('id',(point->>'id')::uuid,'x',(point->>'x')::float8,'y',(point->>'y')::float8,'markerId',mid));
+ end loop;
+ update public.polygons set name=btrim(p_name),geometry=jsonb_build_object('width',1000,'height',700,'dictionary','DICT_4X4_50','points',result_points) where id=p_id returning * into polygon;
+ return polygon;
+end $$;
+revoke all on function public.update_polygon(uuid,text,jsonb,jsonb) from public,anon;
+grant execute on function public.update_polygon(uuid,text,jsonb,jsonb) to authenticated;
+
+create or replace function public.delete_polygon_preset(p_id uuid) returns void
+language plpgsql security definer set search_path='' as $$
+begin
+ update public.polygons set is_archived=true where id=p_id and owner_id=auth.uid() and not is_archived;
+ if not found then raise exception 'Удалять пресет может только его владелец.'; end if;
+ -- Existing users keep their working copies and personal garages.
+end $$;
+revoke all on function public.delete_polygon_preset(uuid) from public,anon;
+grant execute on function public.delete_polygon_preset(uuid) to authenticated;
 
 create or replace function public.save_workspace(p_zones jsonb,p_routes jsonb,p_depth jsonb,p_revision int) returns public.workspaces
 language plpgsql security definer set search_path='' as $$
@@ -82,7 +130,7 @@ begin
  cols:=(p_depth->>'cols')::int; rows:=(p_depth->>'rows')::int;
  if (p_depth->>'version')::int is distinct from 1 or (p_depth->>'width')::int is distinct from 1000 or (p_depth->>'height')::int is distinct from 700 or cols is null or rows is null or cols not between 2 and 100 or rows not between 2 and 100 or jsonb_typeof(p_depth->'cells') is distinct from 'array' then raise exception 'Некорректный формат карты глубины.'; end if;
  if jsonb_array_length(p_depth->'cells')<>cols*rows or exists(select 1 from jsonb_array_elements(p_depth->'cells') v where v<>'null'::jsonb and (jsonb_typeof(v)<>'number' or not ((v::text)::numeric between 0 and 1000))) then raise exception 'Некорректные значения глубины.'; end if;
- select geometry->'points' into boundary from public.polygons where id=ws.polygon_id;
+ select geometry->'points' into boundary from public.polygons where id=ws.polygon_id for update;
  for zone in select value from jsonb_array_elements(p_zones) loop
   if zone->>'kind' not in ('warehouse','charging','mining','transport') or zone->>'kind' is null or not roi_private.shape_ok(zone->'points') then raise exception 'Некорректная зона.'; end if;
   if length(btrim(coalesce(zone->>'name',''))) not between 1 and 100 or not roi_private.path_ok(zone->'points',boundary,null,1000,1000,true) then raise exception 'Зона должна находиться внутри полигона и иметь имя.'; end if;
@@ -107,7 +155,7 @@ begin
  end loop;
  update public.workspaces set zones=saved_zones,zones_initialized=true,routes=p_routes,depth=p_depth,revision=revision+1,updated_at=now() where user_id=uid returning * into ws;
  -- Only the polygon owner can publish the preset; private equipment/routes/depth never enter it.
- update public.polygons set zone_preset=saved_zones where id=ws.polygon_id and owner_id=uid and zone_preset is distinct from saved_zones;
+ update public.polygons set zone_preset=saved_zones where id=ws.polygon_id and owner_id=uid and not is_archived and zone_preset is distinct from saved_zones;
  update public.profiles set registration_status=case when registration_status='ready' then 'routes' else registration_status end where id=uid;
  return ws;
 end $$;
