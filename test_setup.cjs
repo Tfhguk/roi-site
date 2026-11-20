@@ -480,7 +480,20 @@ async function main(){
     const secondOwned=await rpc(alice.id,'create_polygon',['Second personal polygon',JSON.stringify(points([[0,0],[1000,0],[1000,700],[0,700]]))]);
     await page.goto(base+'/roi-site/setup.html?step=polygon');await page.locator('#closeEditor').click();
     assert.equal(await page.locator('#projectList .polygon-project').count(),1,'Saved polygon projects are listed');
+    const beforePreview=await rpc(alice.id,'get_workspace',[]);
+    await page.locator('#showFullPolygon').click();await page.locator('#polygonPreview[open]').waitFor();
+    assert.equal(await page.locator('#polygonPreviewMap polygon').count(),5,'Full polygon preview includes its boundary and all four zones');
+    assert.equal(await page.locator('#polygonPreviewMap [data-vertex]').count(),0,'Preview vertices cannot be edited');
+    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){
+      await page.setViewportSize(viewport);await checkControlsFit('#polygonPreview button,#polygonPreviewMap');
+      assert(await page.locator('#polygonPreview').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Full preview fits without scrolling');
+    }
+    await page.keyboard.press('Escape');await page.locator('#polygonPreview').waitFor({state:'hidden'});
+    assert.deepEqual(await rpc(alice.id,'get_workspace',[]),beforePreview,'Viewing a polygon does not switch or modify its project');
     await page.locator('#polygonSelect').selectOption(secondOwned.id);await page.locator('#editorWindow').waitFor({state:'visible'});
+    await page.locator('#previewFromEditor').click();await page.locator('#polygonPreview[open]').waitFor();
+    assert.equal(await page.locator('#polygonPreviewMap polygon').count(),1,'Another polygon preview does not inherit active project zones');
+    await page.locator('#closePolygonPreview').click();
     const workspaceDownload=page.waitForEvent('download');await page.locator('#downloadMenu summary').click();await page.locator('#exportWorkspace').click();
     const workspaceFile=path.join(output,'selected-polygon.json');await(await workspaceDownload).saveAs(workspaceFile);
     const selectedExport=JSON.parse(fs.readFileSync(workspaceFile,'utf8'));assert.equal(selectedExport.polygon.id,secondOwned.id);assert.deepEqual(selectedExport.equipment,[]);assert.deepEqual(selectedExport.zones,[],'Preview export never includes another polygon zones');

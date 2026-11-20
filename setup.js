@@ -88,7 +88,7 @@
   new ResizeObserver(fitStage).observe($("canvasFit"));
   new ResizeObserver(()=>document.documentElement.style.setProperty("--actions-height",$("actions").getBoundingClientRect().height+"px")).observe($("actions"));
   document.addEventListener("keydown",event=>{
-    if($("stageTutorial").open)return;
+    if($("stageTutorial").open||$("polygonPreview").open)return;
     if(event.key==="Escape"&&$("downloadMenu").open){event.preventDefault();$("downloadMenu").open=false;return;}
     if($("editorWindow").hidden)return;
     if(event.key==="Escape"){event.preventDefault();closeEditor();return;}
@@ -220,6 +220,7 @@
     $("polygonName").disabled=Boolean(selectedId)&&!ownsPolygon;
     $("renamePolygon").hidden=step!=="polygon"||!selectedId||!ownsPolygon;
     $("deletePolygon").hidden=!selectedId||!ownsPolygon;
+    $("showFullPolygon").disabled=!selectedId;$("previewFromEditor").hidden=step!=="polygon"||!selectedId;
     $("reloadPreset").hidden=!selectedId||Boolean(currentPolygon()?.is_archived);
     $("save").disabled=step==="polygon"&&Boolean(selectedId)&&!ownsPolygon;
     $("next").disabled=step==="polygon"&&Boolean(currentPolygon()?.is_archived)&&!projects.some(p=>p.polygon_id===selectedId);
@@ -281,6 +282,22 @@
     await Promise.all([refreshEquipment(),refreshProjects()]);dirty=false;draft=null;selectedWorkspace=null;selectedEquipmentId=null;hoveredEquipmentId=null;garagePage=0;garageFocusId=null;activate("garage");
     if(reload)notice("Оригинал пресета загружен. Гараж сохранён.");
   }
+  async function previewPolygon(){
+    if(!selectedId)return;
+    const id=selectedId,[latest,personal,vehicles]=await Promise.all([AppCloud.polygons(),AppCloud.projectWorkspace(id),AppCloud.equipment()]);
+    const polygon=latest.find(item=>item.id===id);if(!polygon)throw Error("Полигон не найден.");
+    const zones=personal?.zones||polygon.zone_preset||[],map=$("polygonPreviewMap");map.replaceChildren();
+    drawShape(polygon.geometry.points,{target:map,color:"#94a3b8",fill:"#38bdf809"});
+    for(const zone of [...zones].sort((a,b)=>(a.kind!=="transport")-(b.kind!=="transport")))drawShape(zone.points,{target:map,color:({warehouse:"#c4b5fd",charging:"#4ade80",mining:"#fb923c",transport:"#60a5fa"})[zone.kind],fill:zone.kind==="transport"?"#38bdf81a":"#38bdf80a"});
+    const points=[...polygon.geometry.points,...zones.flatMap(zone=>zone.points)],xs=points.map(p=>p.x),ys=points.map(p=>p.y);
+    if(points.length)map.setAttribute("viewBox",[Math.min(...xs)-50,Math.min(...ys)-50,Math.max(...xs)-Math.min(...xs)+160,Math.max(...ys)-Math.min(...ys)+100].join(" "));
+    $("polygonPreviewTitle").textContent=polygon.name;
+    $("polygonPreviewInfo").textContent=(personal?"Сохранённый личный проект":"Пресет владельца")+" · зон: "+zones.length+" · моей техники: "+vehicles.filter(v=>v.polygon_id===id).length+". Просмотр сохранённых данных.";
+    $("polygonPreview").showModal();
+  }
+  $("showFullPolygon").onclick=()=>run(previewPolygon);$("previewFromEditor").onclick=()=>run(previewPolygon);
+  $("closePolygonPreview").onclick=()=>$("polygonPreview").close();
+  $("polygonPreview").addEventListener("click",event=>{if(event.target===$("polygonPreview"))$("polygonPreview").close();});
   function markerValue(input,current=null){
     input.removeAttribute("aria-invalid");
     if(input.value.trim()==="")return null;
@@ -410,19 +427,19 @@
     $("routeLegendItems").replaceChildren(...ownEquipment().map(vehicle=>equipmentRouteCard(vehicle)));
   }
   function svg(tag,attributes){const el=document.createElementNS("http://www.w3.org/2000/svg",tag);for(const [key,value]of Object.entries(attributes))el.setAttribute(key,value);return el;}
-  function drawShape(points,{closed=true,color="#38bdf8",active=false,fill="none",marker=true,showVertices=true,showVertexLabels=true,strokeWidth=3,opacity=1,routeId}={}){
+  function drawShape(points,{closed=true,color="#38bdf8",active=false,fill="none",marker=true,showVertices=true,showVertexLabels=true,strokeWidth=3,opacity=1,routeId,target=$("map")}={}){
     if(!points.length)return;
-    $("map").append(svg(closed?"polygon":"polyline",{points:points.map(p=>p.x+","+p.y).join(" "),fill,stroke:color,"stroke-width":strokeWidth,opacity,...(routeId?{"data-route-id":routeId}:{}),"pointer-events":"none"}));
+    target.append(svg(closed?"polygon":"polyline",{points:points.map(p=>p.x+","+p.y).join(" "),fill,stroke:color,"stroke-width":strokeWidth,opacity,...(routeId?{"data-route-id":routeId}:{}),"pointer-events":"none"}));
     if(active)for(let i=0;i<points.length-(closed?0:1);i++){
       const a=points[i],b=points[(i+1)%points.length];
-      $("map").append(svg("line",{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:"transparent","stroke-width":22,"data-edge":i,class:"edge"}));
+      target.append(svg("line",{x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:"transparent","stroke-width":22,"data-edge":i,class:"edge"}));
     }
     if(showVertices)points.forEach((p,i)=>{
       const group=svg("g",active?{"data-vertex":i,class:"vertex"}:{});
       const knownMarker=marker&&Number.isInteger(p.markerId);
       if(knownMarker)group.append(svg("image",{x:p.x-16,y:p.y-16,width:32,height:32,href:"data:image/svg+xml,"+encodeURIComponent(ArucoMarker.toSVG(p.markerId,32)),"pointer-events":"none"}));
       group.append(svg("circle",{cx:p.x,cy:p.y,r:knownMarker?20:active&&selectedVertex===i?12:8,fill:knownMarker?"transparent":marker?color:"#fbbf24",stroke:knownMarker?color:"#0f172a","stroke-width":active&&selectedVertex===i?4:2}));
-      if(showVertexLabels){const label=svg("text",{x:p.x+14,y:p.y-12});label.textContent=(i+1)+(Number.isInteger(p.markerId)?" / ID "+p.markerId:"");group.append(label);}$("map").append(group);
+      if(showVertexLabels){const label=svg("text",{x:p.x+14,y:p.y-12});label.textContent=(i+1)+(Number.isInteger(p.markerId)?" / ID "+p.markerId:"");group.append(label);}target.append(group);
     });
   }
   function draw(){
@@ -478,7 +495,7 @@
   $("map").addEventListener("pointerup",endPointer);$("map").addEventListener("pointercancel",endPointer);
   function deleteVertex(){if(!editable()||selectedVertex<0)return;snapshot();draft.points.splice(selectedVertex,1);selectedVertex=-1;if(draft.points.length<3)draft.closed=false;changed();render();}
   $("deleteVertex").onclick=deleteVertex;$("undo").onclick=undo;
-  document.addEventListener("keydown",event=>{if(event.target.matches("input,select,textarea"))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();undo();}if(event.key==="Delete")deleteVertex();});
+  document.addEventListener("keydown",event=>{if($("polygonPreview").open||event.target.matches("input,select,textarea"))return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();undo();}if(event.key==="Delete")deleteVertex();});
   function releaseCamera(){stream?.getTracks().forEach(t=>t.stop());stream=null;$("camera").srcObject=null;$("camera").hidden=true;$("frozen").hidden=true;$("freezeCamera").hidden=true;$("resumeCamera").hidden=true;}
   $("background").onchange=()=>run(async()=>{
     releaseCamera();
