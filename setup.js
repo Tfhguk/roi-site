@@ -245,7 +245,7 @@
     if(garageFocusId){garagePage=Math.max(0,Math.floor(ownEquipment().findIndex(item=>item.id===garageFocusId)/pageSize));garageFocusId=null;}
     const cards=ownEquipment().map(item=>{
       const card=document.createElement("article");card.className="equipment-card";
-      card.dataset.type=item.type==="excavator"?"bulldozer":item.type;
+      card.dataset.type=item.type==="excavator"?"bulldozer":item.type==="robot"?"charging_station":item.type;
       const title=document.createElement("h2");title.textContent=item.name;
       const image=new Image();image.alt="ID "+item.marker_id;image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(ArucoMarker.toSVG(item.marker_id,300));
       const role=G.equipmentRole(item.type);

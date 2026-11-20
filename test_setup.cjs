@@ -95,6 +95,9 @@ function geometryTests(){
     assert(routes.every(r=>!G.vehicleRouteErrors(r,zones,machine).length));
   }
   const haul=fleetRoutes.find(r=>r.purpose==='haul');assert.equal(haul.equipmentId,'truck');
+  assert.equal(G.equipmentRole('charging_station').label,'Зарядная станция');assert.equal(G.equipmentRole('other').label,'Иное');
+  assert(G.vehicleRouteErrors(haul,zones,{type:'charging_station'}).length);assert.deepEqual(G.vehicleRouteErrors({...haul,purpose:'manual'},zones,{type:'other'}),[]);
+  assert.equal(G.planRoutes(terrainBoundary,zones,[vehicle,{id:'station',type:'charging_station'},{id:'other',type:'other'}],G.emptyDepth()).routes.length,2,'Stations do not move; unspecified equipment does not receive invented automatic jobs');
   for(const machine of fleet.filter(v=>v.type!=='truck'))assert(G.vehicleRouteErrors({...haul,equipmentId:machine.id},zones,machine).length);
   assert.throws(()=>G.generateDepth(narrow,narrowZones,98765),/отступ|безопасного/,'Never shrink clearances to force a vehicle into a narrow corridor');
   console.log('PASS planner: 35 reproducible seeds connect every zone; narrow bent corridors, zero depth/slope, overlapping centres; flatter detours preferred to legal straight lines without destructive simplification; impassable imported maps remain blocked.');
@@ -111,9 +114,12 @@ async function main(){
   await db.query("insert into public.polygons(id,owner_id,name,geometry) values($1,$2,'Legacy fixture','{}')",[legacyPolygon,legacyUser]);
   await db.exec("alter table public.equipment drop constraint equipment_type_check;alter table public.equipment add constraint equipment_type_check check(type in ('truck','excavator','loader','robot'));");
   await db.query("insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values($1,$2,$3,'Existing custom name','excavator',49)",[legacyEquipment,legacyUser,legacyPolygon]);
+  const legacyStation=randomUUID();await db.query("insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values($1,$2,$3,'Station name','robot',48)",[legacyStation,legacyUser,legacyPolygon]);
   await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
   await db.exec(fs.readFileSync(path.join(root,'supabase/transport-migration.sql'),'utf8'));
   const converted=(await db.query('select * from public.equipment where id=$1',[legacyEquipment])).rows[0];assert.equal(converted.type,'bulldozer');assert.equal(converted.marker_id,49);assert.equal(converted.name,'Existing custom name');
+  const station=(await db.query('select * from public.equipment where id=$1',[legacyStation])).rows[0];assert.equal(station.type,'charging_station');assert.equal(station.marker_id,48);assert.equal(station.name,'Station name');
+  await db.query('delete from public.equipment where id=$1',[legacyStation]);
   await db.query('delete from public.equipment where id=$1',[legacyEquipment]);await db.query('delete from public.polygons where id=$1',[legacyPolygon]);await db.query('delete from auth.users where id=$1',[legacyUser]);
   const accounts=new Map(),tokens=new Map();
   let queue=Promise.resolve();
@@ -230,6 +236,7 @@ async function main(){
     await page.locator('#polygonName').fill('  Общий полигон  ');await page.locator('#next').click();
     await page.waitForFunction(()=>!document.getElementById('garage').hidden);
     assert.equal(await page.locator('#equipmentType option[value=bulldozer]').innerText(),'Бульдозер');assert.equal(await page.locator('#equipmentType option[value=excavator]').count(),0);
+    assert.equal(await page.locator('#equipmentType option[value=charging_station]').innerText(),'Зарядная станция');assert.equal(await page.locator('#equipmentType option[value=other]').innerText(),'Иное');assert.equal(await page.locator('#equipmentType option[value=robot]').count(),0);
     await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button[type=submit]').click();await page.locator('.equipment-card').waitFor();
     assert(!/aruco/i.test(await page.locator('#garage').innerText()),'Garage labels use ID only');
     const firstMachine=(await asUser(alice.id,'select * from public.equipment')).rows[0];
@@ -244,7 +251,7 @@ async function main(){
     assert.equal((await asUser(alice.id,'select marker_id from public.equipment')).rows[0].marker_id,49);
     await page.locator('.equipment-id-form input').fill(String(firstMachine.marker_id));await page.locator('.equipment-id-form button').click();
     await page.waitForFunction(id=>document.querySelector('.equipment-id-form input').value===String(id)&&!document.querySelector('main').inert,firstMachine.marker_id);
-    await page.locator('#openEquipmentForm').click();await page.locator('#equipmentName').fill('Pagination test');await page.locator('#equipmentMarkerId').fill('48');await page.locator('#equipmentForm button[type=submit]').click();
+    await page.locator('#openEquipmentForm').click();await page.locator('#equipmentName').fill('Pagination test');await page.locator('#equipmentType').selectOption('other');await page.locator('#equipmentMarkerId').fill('48');await page.locator('#equipmentForm button[type=submit]').click();
     await page.waitForFunction(()=>document.querySelectorAll('.equipment-card').length===2&&!document.querySelector('main').inert);
     for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:1100}]){
       await page.setViewportSize(viewport);await page.waitForTimeout(80);

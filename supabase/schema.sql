@@ -142,13 +142,14 @@ grant execute on function public.mark_stage_tutorial(text) to authenticated;
 create table if not exists public.equipment (
  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
  polygon_id uuid not null references public.polygons(id), name text not null check(length(btrim(name)) between 1 and 100),
- type text not null check(type in ('truck','bulldozer','loader','robot')), marker_id int not null check(marker_id between 0 and 49),
+ type text not null check(type in ('truck','bulldozer','loader','charging_station','other')), marker_id int not null check(marker_id between 0 and 49),
  created_at timestamptz not null default now(), unique(polygon_id,marker_id)
 );
 -- Upgrade the equipment vocabulary without replacing IDs or marker reservations.
 alter table public.equipment drop constraint if exists equipment_type_check;
 update public.equipment set type='bulldozer' where type='excavator';
-alter table public.equipment add constraint equipment_type_check check(type in ('truck','bulldozer','loader','robot'));
+update public.equipment set type='charging_station' where type='robot';
+alter table public.equipment add constraint equipment_type_check check(type in ('truck','bulldozer','loader','charging_station','other'));
 create table if not exists public.workspaces (
  user_id uuid primary key references auth.users(id) on delete cascade, polygon_id uuid not null references public.polygons(id),
  zones jsonb not null default '[]', routes jsonb not null default '[]', depth jsonb not null,
@@ -254,7 +255,7 @@ begin
  select polygon_id into pid from public.profiles where id=uid for update;
  if uid is null or pid is null then raise exception 'Сначала выберите полигон.'; end if;
  mid:=roi_private.allocate_marker(pid,uid,'equipment',eid);
- insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values(eid,uid,pid,btrim(p_name),case when p_type='excavator' then 'bulldozer' else p_type end,mid) returning * into result;
+ insert into public.equipment(id,user_id,polygon_id,name,type,marker_id) values(eid,uid,pid,btrim(p_name),case when p_type='excavator' then 'bulldozer' when p_type='robot' then 'charging_station' else p_type end,mid) returning * into result;
  return result;
 end $$;
 create or replace function public.set_equipment_marker(p_id uuid,p_marker_id int) returns public.equipment
@@ -444,7 +445,9 @@ create or replace function roi_private.vehicle_route_ok(route jsonb,vehicle_type
 language plpgsql immutable set search_path='' as $$
 declare base_kind text:=case when vehicle_type='loader' then 'mining' else 'warehouse' end; endpoint jsonb;
 begin
+ if vehicle_type in ('charging_station','robot') then return false; end if;
  if vehicle_type='truck' then return true; end if;
+ if vehicle_type='other' then return coalesce(route->>'purpose','manual')<>'haul'; end if;
  if route->>'purpose'='haul' then return false; end if;
  for endpoint in select route->'points'->0 union all select route->'points'->(jsonb_array_length(route->'points')-1) loop
   if not exists(select 1 from jsonb_array_elements(zones) z where z->>'kind' in (base_kind,'charging') and roi_private.inside(endpoint,z->'points')) then return false; end if;

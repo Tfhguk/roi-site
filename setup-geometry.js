@@ -306,12 +306,14 @@
     return searchPath(start,end,polygon,depth,limits,makeGraph(polygon,depth,limits));
   }
   function equipmentRole(type){
-    const roles={truck:{label:"Самосвал",baseKind:"warehouse",hauls:true},bulldozer:{label:"Бульдозер",baseKind:"warehouse",hauls:false},loader:{label:"Погрузчик",baseKind:"mining",hauls:false},robot:{label:"Робот",baseKind:"warehouse",hauls:false}};
-    return roles[type==="excavator"?"bulldozer":type]||roles.truck;
+    const roles={truck:{label:"Самосвал",baseKind:"warehouse",hauls:true},bulldozer:{label:"Бульдозер",baseKind:"warehouse",hauls:false},loader:{label:"Погрузчик",baseKind:"mining",hauls:false},charging_station:{label:"Зарядная станция",baseKind:null,hauls:false,stationary:true},other:{label:"Иное",baseKind:null,hauls:false,manual:true}};
+    return roles[type==="excavator"?"bulldozer":type==="robot"?"charging_station":type]||roles.other;
   }
   function vehicleRouteErrors(route,zones,vehicle){
     if(!vehicle)return ["Выберите технику, которой принадлежит маршрут."];
     const role=equipmentRole(vehicle.type);if(role.hauls||route.points.length<2)return [];
+    if(role.stationary)return ["Зарядная станция неподвижна: траектории для неё не создаются."];
+    if(role.manual)return route.purpose==="haul"?["Перевозки между добычей и складом назначаются только самосвалу."]:[];
     const allowed=zones.filter(z=>z.kind===role.baseKind||z.kind==="charging");
     if(route.purpose==="haul"||![route.points[0],route.points.at(-1)].every(p=>allowed.some(z=>inside(p,z.points))))return [role.label+": разрешены местные перемещения в "+(role.baseKind==="mining"?"зоне добычи":"зоне склада")+" и поездки на зарядку. Между добычей и складом ездит только самосвал."];
     return [];

@@ -96,7 +96,8 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
 .equipment-card[data-type="truck"]{--equipment-accent:#38bdf8;--equipment-tint:#16364b}
 .equipment-card[data-type="bulldozer"]{--equipment-accent:#fbbf24;--equipment-tint:#493819}
 .equipment-card[data-type="loader"]{--equipment-accent:#4ade80;--equipment-tint:#174431}
-.equipment-card[data-type="robot"]{--equipment-accent:#c4b5fd;--equipment-tint:#382952}
+.equipment-card[data-type="charging_station"]{--equipment-accent:#c4b5fd;--equipment-tint:#382952}
+.equipment-card[data-type="other"]{--equipment-accent:#f9a8d4;--equipment-tint:#472b3b}
 .equipment-card .equipment-info>p{color:var(--equipment-accent)}
 #mapContextMenu{position:fixed;z-index:95;background:var(--panel);border:1px solid #64748b;box-shadow:0 8px 28px #0008;padding:5px;border-radius:9px;max-width:calc(100vw - 10px)}
 #mapContextMenu button{border:0;width:100%;text-align:left;font-size:.85rem;padding:8px 12px}
