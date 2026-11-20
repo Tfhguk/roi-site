@@ -192,10 +192,16 @@ async function main(){
       await page.addLocatorHandler(page.locator('#stageTutorial[open]'),async()=>{await page.locator('#tutorialContinue').click();});
     }
     async function checkEditorViewport(){
-      await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions');return map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&nav.bottom<=windowBox.top&&[windowBox,map,actions].every(box=>box.top>=nav.bottom&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
+      await page.waitForFunction(()=>{const rect=id=>document.getElementById(id).getBoundingClientRect(),map=rect('map'),fit=rect('canvasFit'),nav=rect('steps'),windowBox=rect('editorWindow'),actions=rect('actions'),wide=matchMedia('(min-width:1100px) and (min-height:600px)').matches;return map.width>10&&map.height>10&&map.bottom<=fit.bottom+1&&map.right<=fit.right+1&&nav.top>=0&&(wide?windowBox.right<=nav.left&&nav.bottom<=actions.top:nav.bottom<=windowBox.top)&&[windowBox,map,actions].every(box=>box.top>=0&&box.bottom<=innerHeight&&box.left>=0&&box.right<=innerWidth);});
       const layout=await page.evaluate(()=>{const rect=id=>{const r=document.getElementById(id).getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};};return {nav:rect('steps'),window:rect('editorWindow'),map:rect('map'),actions:rect('actions'),height:innerHeight,width:innerWidth,overflow:getComputedStyle(document.body).overflow};});
-      assert.equal(layout.overflow,'hidden');assert(layout.nav.top>=0&&layout.nav.bottom<=layout.window.top);
-      for(const box of [layout.window,layout.map,layout.actions])assert(box.top>=layout.nav.bottom&&box.bottom<=layout.height&&box.left>=0&&box.right<=layout.width,JSON.stringify(layout));
+      assert.equal(layout.overflow,'hidden');
+      const wide=layout.width>=1100&&layout.height>=600;
+      assert(wide?layout.window.right<=layout.nav.left&&layout.nav.bottom<=layout.actions.top:layout.nav.bottom<=layout.window.top,JSON.stringify(layout));
+      for(const box of [layout.window,layout.map,layout.actions])assert(box.top>=(wide?0:layout.nav.bottom)&&box.bottom<=layout.height&&box.left>=0&&box.right<=layout.width,JSON.stringify(layout));
+      if(wide&&await page.locator('#drawingTools').isVisible()){
+        const tools=await page.locator('#drawingTools').boundingBox();assert(tools.x+tools.width<=layout.map.left+1,'Drawing tools stay to the left of the field');
+        assert(await page.locator('#drawingTools').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Drawing tools fit without clipping');
+      }
       await page.mouse.wheel(0,700);assert.equal(await page.evaluate(()=>scrollY),0,'Drawing never needs page scrolling');
     }
     async function clickAt(x,y){const bounds=await page.locator('#map').boundingBox();await page.locator('#map').click({position:{x:x*bounds.width/1000,y:y*bounds.height/700}});}
@@ -212,7 +218,10 @@ async function main(){
     assert.equal((await asUser(alice.id,'select registration_status from public.profiles')).rows[0].registration_status,'polygon');
     assert.equal(await page.locator('#editorWindow').isVisible(),false,'New polygon waits for an explicit button click');
     await page.locator('#openEditor').click();await checkEditorViewport();
-    for(const viewport of [{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){await page.setViewportSize(viewport);await checkEditorViewport();await page.screenshot({path:path.join(output,'setup-window-'+viewport.width+'.png')});}
+    for(const viewport of [{width:1100,height:600},{width:1366,height:768},{width:1024,height:768},{width:390,height:844},{width:844,height:390},{width:1400,height:900}]){
+      await page.setViewportSize(viewport);await checkEditorViewport();await checkControlsFit('#steps button,#actions button,#actions summary,#editorWindow button,#editorWindow input,#editorWindow select');
+      await page.screenshot({path:path.join(output,'setup-window-'+viewport.width+'.png')});
+    }
     await page.locator('#background').selectOption('camera');await page.waitForFunction(()=>document.getElementById('camera').videoWidth>0);
     await page.locator('#freezeCamera').click();assert.equal(await page.locator('#frozen').isVisible(),true);
     await page.locator('#background').selectOption('grid');assert.equal(await page.locator('#camera').evaluate(v=>v.srcObject),null);
@@ -269,7 +278,7 @@ async function main(){
       await page.locator('#openEquipmentForm').click();await checkControlsFit('#garage button,#garage input,#garage select,#actions button');await page.locator('#cancelEquipmentForm').click();
       await page.screenshot({path:path.join(output,'garage-'+viewport.width+'.png')});
     }
-    const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
+    await page.locator('#downloadMenu>summary').click();const pdfPromise=page.waitForEvent('download');await page.locator('#exportMarkers').click();await(await pdfPromise).saveAs(path.join(output,'setup-markers.pdf'));
     assert.equal(fs.readFileSync(path.join(output,'setup-markers.pdf')).subarray(0,5).toString(),'%PDF-');
     await page.locator('#next').click();await page.waitForFunction(()=>!document.getElementById('zoneKindLabel').hidden);
     const zoneSpecs=[['warehouse',[[180,180],[300,180],[300,280],[180,280]]],['charging',[[400,180],[500,180],[500,280],[400,280]]],['mining',[[600,180],[700,180],[700,280],[600,280]]],['transport',[[140,140],[860,140],[860,580],[140,580]]]];
@@ -289,7 +298,7 @@ async function main(){
     assert.equal(await page.locator('#shapeList .item').count(),2,'First visit creates working-zone routes automatically');
     await checkEditorViewport();
     assert(!/препятствие|Превышен|выходит/.test(await page.locator('#validation').innerText()));
-    const autoDownload=page.waitForEvent('download');await page.locator('#exportWorkspace').click();await(await autoDownload).saveAs(path.join(output,'auto-routes.json'));
+    await page.locator('#downloadMenu>summary').click();const autoDownload=page.waitForEvent('download');await page.locator('#exportWorkspace').click();await(await autoDownload).saveAs(path.join(output,'auto-routes.json'));
     const autoProject=JSON.parse(fs.readFileSync(path.join(output,'auto-routes.json'),'utf8'));assert.equal(autoProject.depth.seed,12345);assert.equal(autoProject.routes.length,2);
     assert.equal(await page.locator('.route-label').count(),0);assert(!/№/.test(await page.locator('#map').textContent()),'Route numbers are absent from the map');
     const equipmentCard=page.locator('#routeLegendItems .equipment-route-card').first();

@@ -19,6 +19,7 @@
     routes:{title:"Постройте и проверьте пути",intro:"Траектории учитывают транспортную область, глубины, перепады и отступы от меток.",steps:["Выберите ограничения и нажмите «Построить автоматически». Для теста можно сгенерировать карту глубины.","Наведите курсор на карточку машины или нажмите её, чтобы увидеть точки её путей. Кнопка «Изменить» позволяет передвигать точки.","Исправьте недопустимые участки, сохраните изменения и нажмите «Завершить настройку»."]}
   };
   document.querySelector("main").inert=true;
+  $("workflowSidebar").inert=true;
   const clone=value=>structuredClone(value), uid=()=>crypto.randomUUID();
   function notice(text,error=false){
     clearTimeout(noticeTimer);$("message").hidden=!text;if(!text)return;
@@ -34,18 +35,35 @@
     const width=Math.max(1,Math.min(box.clientWidth-2,(box.clientHeight-2)*10/7));
     stage.style.width=width+"px";stage.style.height=width*7/10+"px";
   }
+  const wideLayout=window.matchMedia("(min-width:1100px) and (min-height:600px)");
+  function syncLayout(){
+    const wide=wideLayout.matches,open=!$("editorWindow").hidden,drawing=step==="polygon"||step==="zones";
+    const actionsTarget=wide?$("sidebarActions"):open?$("editorWindow"):$("pageActions");
+    if($("actions").parentElement!==actionsTarget)actionsTarget.append($("actions"));
+    $("drawingTools").hidden=!wide||!drawing;
+    const toolsTarget=wide&&drawing?$("drawingToolsSlot"):$("editorBottom");
+    if($("editorToolsBottom").parentElement!==toolsTarget)toolsTarget.append($("editorToolsBottom"));
+    const hintTarget=wide&&drawing?$("drawingTools"):document.querySelector(".canvas-panel");
+    if($("editorHint").parentElement!==hintTarget){
+      if(wide&&drawing)hintTarget.insertBefore($("editorHint"),$("drawingToolsSlot"));else hintTarget.append($("editorHint"));
+    }
+    const headerHeight=document.querySelector("header").getBoundingClientRect().height;
+    document.documentElement.style.setProperty("--header-height",headerHeight+"px");
+    document.documentElement.style.setProperty("--chrome-height",(headerHeight+(wide?0:$("steps").getBoundingClientRect().height))+"px");
+    fitStage();
+  }
   function setBackgroundInert(value){for(const selector of [".heading","#polygonTools","#garage","#drawingLauncher"])document.querySelector(selector).inert=value;}
   function openEditor(){
     if(step==="garage"||!profile)return;
     const wasHidden=$("editorWindow").hidden;
     $("editorWindow").hidden=false;$("editorBackdrop").hidden=false;document.body.classList.add("editor-open");
-    $("editorWindow").append($("actions"));setBackgroundInert(true);window.scrollTo(0,0);
+    syncLayout();setBackgroundInert(true);window.scrollTo(0,0);
     fitStage();requestAnimationFrame(fitStage);
     if(wasHidden)$("closeEditor").focus({preventScroll:true});
   }
   function closeEditor(focus=true){
     $("editorWindow").hidden=true;$("editorBackdrop").hidden=true;document.body.classList.remove("editor-open");
-    $("pageActions").append($("actions"));setBackgroundInert(false);
+    syncLayout();setBackgroundInert(false);
     $("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");
     releaseCamera();$("background").value="grid";drag=null;painting=false;
     if(focus&&!$("drawingLauncher").hidden)$("openEditor").focus({preventScroll:true});
@@ -55,20 +73,21 @@
   $("closeProperties").onclick=()=>{$("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");};
   $("propertiesTabs").onclick=event=>{const pane=event.target.dataset.pane;if(pane){propertiesPane=pane;updatePropertiesPanes();}};
   const layoutObserver=new ResizeObserver(()=>{
-    const header=document.querySelector("header");
-    document.documentElement.style.setProperty("--header-height",header.getBoundingClientRect().height+"px");
-    document.documentElement.style.setProperty("--chrome-height",(header.getBoundingClientRect().height+$("steps").getBoundingClientRect().height)+"px");
-    fitStage();
+    syncLayout();
   });
   layoutObserver.observe(document.querySelector("header"));layoutObserver.observe($("steps"));
+  wideLayout.addEventListener("change",syncLayout);
+  $("downloadMenu").addEventListener("click",event=>{if(event.target.closest("button"))$("downloadMenu").open=false;});
+  document.addEventListener("pointerdown",event=>{if(!$("downloadMenu").contains(event.target))$("downloadMenu").open=false;});
   new ResizeObserver(fitStage).observe($("canvasFit"));
   new ResizeObserver(()=>document.documentElement.style.setProperty("--actions-height",$("actions").getBoundingClientRect().height+"px")).observe($("actions"));
   document.addEventListener("keydown",event=>{
     if($("stageTutorial").open)return;
+    if(event.key==="Escape"&&$("downloadMenu").open){event.preventDefault();$("downloadMenu").open=false;return;}
     if($("editorWindow").hidden)return;
     if(event.key==="Escape"){event.preventDefault();closeEditor();return;}
     if(event.key!=="Tab")return;
-    const controls=[...document.querySelectorAll("header a,header button,#steps button,#editorWindow button,#editorWindow input,#editorWindow select,#editorWindow summary,#map,#notificationCenter button")].filter(el=>!el.disabled&&el.getClientRects().length);
+    const controls=[...document.querySelectorAll("header a,header button,#steps button,#editorWindow button,#editorWindow input,#editorWindow select,#editorWindow summary,#actions button,#actions summary,#map,#notificationCenter button")].filter(el=>!el.disabled&&el.getClientRects().length);
     const first=controls[0],last=controls.at(-1);
     if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
     if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
@@ -127,7 +146,7 @@
   function activate(target){
     if(!permitted(target))return;
     if(dirty&&target!==step){notice("Сначала сохраните фигуру в проект и изменения на сервере.",true);return;}
-    step=target;draft=null;selectedVertex=-1;history=[];
+    step=target;draft=null;selectedVertex=-1;history=[];$("downloadMenu").open=false;
     pages.shapes=0;pages.vertices=0;propertiesPane=step==="polygon"?"vertices":"shapes";
     if(step==="garage")garageCreating=!ownEquipment().length;
     closeEditor(false);
@@ -166,6 +185,7 @@
     $("steps").replaceChildren(...stages.map((s,i)=>{const el=button((i+1)+". "+shortLabels[s],()=>{if(step===s)openEditor();else activate(s);},s===step?"current":"");el.disabled=!permitted(s);el.setAttribute("aria-current",s===step?"step":"false");return el;}));
     $("polygonTools").hidden=step!=="polygon";$("garage").hidden=step!=="garage";$("editor").hidden=step==="garage";
     $("drawingLauncher").hidden=step==="garage";$("openEditor").textContent=shortLabels[step];$("editorTitle").textContent=shortLabels[step];
+    $("closeEditor").textContent=step==="polygon"?"К списку полигонов":"Закрыть редактор";
     $("polygonNameLabel").hidden=step!=="polygon";
     $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
     $("zoneKindLabel").hidden=step!=="zones";$("newShape").hidden=!["zones","routes"].includes(step);
@@ -198,7 +218,7 @@
       $("routeEquipment").value=draft.equipmentId||"";$("maxDepth").value=draft.maxDepth??5;$("maxSlope").value=draft.maxSlope??2;
       $("boundaryClearance").value=draft.boundaryClearance??5;$("markerClearance").value=draft.markerClearance??40;
     }
-    renderLists();renderRouteLegend();draw();renderSaveState();fitStage();
+    renderLists();renderRouteLegend();draw();renderSaveState();syncLayout();
   }
   function pageItems(container,pager,elements,key,size){
     const count=Math.max(1,Math.ceil(elements.length/size));
@@ -576,13 +596,13 @@
     const usedNumbers=new Set(ws.routes.filter(r=>Number.isInteger(r.number)&&r.number>0).map(r=>r.number));let number=1;
     for(const route of ws.routes)if(!route.number){while(usedNumbers.has(number))number++;route.number=number;usedNumbers.add(number);}
     $("routeLegend").open=matchMedia("(min-width: 1000px)").matches;
-    $("account").textContent=profile.name;$("depthCols").value=ws.depth.cols;$("depthRows").value=ws.depth.rows;
+    $("account").textContent="Аккаунт: "+profile.name;$("depthCols").value=ws.depth.cols;$("depthRows").value=ws.depth.rows;
     const fallback=["ready","routes"].includes(profile.registration_status)?(AppCloud.routesEnabled?"routes":"zones"):profile.registration_status;
     const target=new URLSearchParams(location.search).get("step")||fallback;
     activate(permitted(target)&&stages.includes(target)?target:fallback);
     if(target==="routes"&&!AppCloud.routesEnabled)notice("Раздел «Траектории» временно отключён.");
   }catch(error){notice(error.message,true);$("title").textContent="Не удалось загрузить рабочее пространство";document.querySelectorAll("main button,main input,main select").forEach(el=>el.disabled=true);}
-  finally{document.querySelector("main").inert=false;}
+  finally{document.querySelector("main").inert=false;$("workflowSidebar").inert=!ws;}
   let resizeFrame;
   window.addEventListener("resize",()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{if(profile&&ws){if(step==="garage")renderGarage();renderLists();fitStage();}});});
 })();

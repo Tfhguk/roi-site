@@ -65,6 +65,7 @@ input[aria-invalid=true]{border-color:#fb7185;outline-color:#fb7185}
  #editorHint{display:none}#editorWindow footer{padding-top:4px}#editorWindow footer button{padding:4px;font-size:.72rem}
  #depthPanel{max-height:24vh;font-size:.75rem}
 }
+
 /* Route tools float above the field, preserving its full available size. */
 #editorWindow.routes-layout{max-width:none}
 #editorWindow.routes-layout .workspace{grid-template-columns:minmax(0,1fr);gap:0}
@@ -166,3 +167,61 @@ body.editor-open #notificationCenter{overflow:hidden}
  #editorWindow.drawing-layout #zonePropertiesDock #shapeProperties label{font-size:.63rem;flex-basis:100%;min-width:0}
  #editorWindow.drawing-layout #zonePropertiesDock #applyShape{width:100%;font-size:.65rem}
 }
+
+/* The desktop workspace follows the polygon layout: tools, field, workflow. */
+#workflowSidebar{display:contents}
+#editorBody{display:flex;flex:1;min-height:0;min-width:0}
+#editorBody>.workspace{width:100%;min-width:0}
+#drawingTools h3{font-size:1rem;margin:0 0 12px}
+#downloadMenu{position:relative;min-width:0}
+#downloadMenu>summary{list-style:none;border:1px solid var(--border);background:#26364b;border-radius:9px;padding:8px;font-size:.78rem;text-align:center;white-space:nowrap}
+#downloadMenu>summary::-webkit-details-marker{display:none}
+#downloadMenu>summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#downloadMenu>div{position:absolute;bottom:calc(100% + 6px);right:0;min-width:210px;display:grid;gap:6px;padding:8px;border:1px solid #64748b;border-radius:10px;background:var(--panel);box-shadow:0 8px 30px #0009;z-index:80}
+#downloadMenu:not([open])>div{display:none}
+#downloadMenu>div button{text-align:left;width:100%}
+#actions:has(#downloadMenu[open]){position:relative;z-index:80}
+@media(min-width:1100px) and (min-height:600px){
+ :root{--workflow-width:clamp(230px,20vw,280px)}
+ header{flex-wrap:nowrap;padding:12px 20px;gap:18px}header>a{white-space:nowrap;text-decoration:none}header>strong{flex:1;text-align:center;font-size:1rem}header #account{margin-left:0;font-size:.86rem}header #logout{white-space:nowrap}
+ #workflowSidebar{position:fixed;z-index:60;top:var(--header-height);bottom:0;right:0;width:var(--workflow-width);display:flex;flex-direction:column;gap:18px;padding:16px;background:#13243a;border-left:1px solid var(--border)}
+ #steps{position:static;display:grid;grid-template-columns:1fr;grid-template-rows:repeat(4,minmax(0,1fr));flex:1;min-height:0;max-height:440px;gap:12px;padding:0;border:0;background:transparent}
+ #steps button{padding:12px 18px;font-size:1.15rem;text-align:left;border-radius:13px;font-weight:600;background:var(--panel)}
+ #steps button.current{border-color:var(--accent);background:#164e63;box-shadow:inset 4px 0 var(--accent)}
+ #steps button:disabled{opacity:.42}
+ #sidebarActions{margin-top:auto;flex:none}
+ #sidebarActions footer{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0;padding:14px 0 0;background:transparent;border-top:1px solid #39506c}
+ #sidebarActions #openTutorial,#sidebarActions #downloadMenu,#sidebarActions #save{grid-column:1/-1}
+ #sidebarActions #openTutorial{order:0}#sidebarActions #downloadMenu{order:1}#sidebarActions #save{order:2}#sidebarActions #back{order:3;margin:0}#sidebarActions #next{order:4}
+ #sidebarActions footer button,#sidebarActions #downloadMenu>summary{min-width:0;padding:10px 8px;font-size:.83rem}
+ #sidebarActions #downloadMenu>div{left:0;right:0;min-width:0}
+ main{width:calc(100% - var(--workflow-width));max-width:none;margin:0;padding:16px;height:calc(100dvh - var(--chrome-height))}
+ body.editor-open main{height:calc(100dvh - var(--chrome-height))}
+ .editor-window{left:12px;right:calc(var(--workflow-width) + 12px);top:calc(var(--header-height) + 12px);bottom:12px;margin:0;max-width:none;padding:14px;gap:12px;border-color:#475569}
+ .window-heading{gap:10px;min-height:42px;flex-wrap:nowrap}.window-heading h2{display:block;font-size:.95rem;white-space:nowrap}body[data-step="polygon"] .window-heading h2{display:none}
+ #polygonNameLabel{flex-direction:row;align-items:center;gap:10px;max-width:none;min-width:0;white-space:nowrap;font-weight:600}#polygonNameLabel input{width:100%;min-width:80px;max-width:310px;font-size:.88rem}
+ #renamePolygon{white-space:nowrap;font-size:.76rem;padding:8px}
+ #closeEditor,#toggleProperties{font-size:.76rem;padding:8px 10px;white-space:nowrap}
+ #editorWindow.drawing-layout #toggleProperties{margin-left:0}
+ #editorWindow.drawing-layout #closeEditor{margin-left:auto}
+ #editorWindow .controls.panel{padding:10px 12px;background:#142337;border-radius:10px}
+ #editorWindow .controls.panel>label{flex-direction:row;align-items:center;font-weight:600}
+ #editorWindow .controls.panel select{padding:7px}
+ #editorWindow.drawing-layout #editorBody{display:grid;grid-template-columns:190px minmax(0,1fr);gap:14px}
+ #drawingTools{display:flex;flex-direction:column;min-width:0;min-height:0;padding:12px 4px 0 0}
+ #drawingTools #editorHint{font-size:.9rem;line-height:1.7;margin:0 0 18px;color:#cbd5e1;white-space:pre-line}
+ #drawingTools #editorToolsBottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:auto;padding-bottom:6px}
+ #drawingTools #editorToolsBottom button{font-size:.79rem;line-height:1.35;padding:12px 7px;min-height:56px}
+ #drawingTools #zoneChecklist{grid-column:1/-1;line-height:1.4;margin:0;font-size:.72rem}
+ #editorWindow.drawing-layout .workspace{margin:0;gap:0}
+ #editorWindow.drawing-layout .stage{border-radius:18px}
+ #editorWindow.drawing-layout aside#editorProperties{top:56px;bottom:14px;right:14px}
+ #editorBottom:empty{display:none}#editorBottom{gap:0}
+ #zonePropertiesDock #shapeProperties{padding:8px 0 0}
+ #zonePropertiesDock #shapeProperties label{max-width:none}
+ #pageActions{display:none}
+ body.editor-open #notificationCenter,#notificationCenter{right:calc(var(--workflow-width) + 28px);bottom:26px;max-height:calc(100dvh - var(--header-height) - 50px)}
+ .heading h1{font-size:1.4rem}
+}
+@media(max-width:750px){#downloadMenu>summary{font-size:.7rem;padding:6px 3px}#editorWindow #downloadMenu>summary{font-size:.72rem;padding:6px}#downloadMenu>div{min-width:200px}#editorWindow footer{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-height:500px){#downloadMenu>summary,#editorWindow #downloadMenu>summary{padding:4px;font-size:.68rem}}
