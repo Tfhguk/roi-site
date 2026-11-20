@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
 const vm = require("node:vm");
+const { createHash } = require("node:crypto");
 
 const ROOT = __dirname;
 const DIST = path.resolve(ROOT, "dist");
@@ -88,6 +89,10 @@ function build() {
     if (name === "cloud-config.js" && cloudUrl) content = "window.ROI_CLOUD = Object.freeze(" + JSON.stringify({ url: cloudUrl, publishableKey: cloudKey }) + ");\n";
     for (const [source, target] of VENDOR_FILES.filter(([source]) => source.endsWith(".js"))) {
       content = content.split(source).join(target);
+    }
+    if (name === "setup.html") {
+      const version = createHash("sha256").update(fs.readFileSync(path.join(ROOT, "setup.js"))).digest("hex").slice(0, 16);
+      content = content.replace('src="setup.js"', 'src="setup.js?v=' + version + '"');
     }
     write(name, content);
   }
