@@ -5,3 +5,5 @@ test-output/
 dist/
 aruco-site.zip
 github-upload/
+preview/
+problem_id_*.png
