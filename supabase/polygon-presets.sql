@@ -3,6 +3,7 @@ begin;
 alter table public.polygons add column if not exists zone_preset jsonb not null default '[]';
 alter table public.polygons add column if not exists is_archived boolean not null default false;
 alter table public.workspaces add column if not exists zones_initialized boolean not null default false;
+alter table public.workspaces add column if not exists garage_removed boolean not null default false;
 alter table public.polygons add column if not exists preset_revision bigint not null default 1;
 alter table public.workspaces add column if not exists preset_revision bigint not null default 0;
 alter table public.workspaces add column if not exists registration_status text not null default 'garage' check(registration_status in ('garage','zones','routes','ready'));
@@ -46,17 +47,17 @@ begin
  if ws.user_id is null or ws.zones_initialized then return ws; end if;
  select * into polygon from public.polygons where id=ws.polygon_id for update;
  if polygon.zone_preset='[]'::jsonb then return ws; end if;
- if polygon.owner_id=p_user then
-  result:=polygon.zone_preset;
- else
-  for zone in select value from jsonb_array_elements(polygon.zone_preset) loop
+ for zone in select value from jsonb_array_elements(polygon.zone_preset) loop
    points:='[]';
    for point in select value from jsonb_array_elements(zone->'points') loop
-    ref:=gen_random_uuid();mid:=roi_private.allocate_marker(polygon.id,p_user,'zone',ref);
+    ref:=case when polygon.owner_id=p_user then (point->>'id')::uuid else gen_random_uuid() end;
+    mid:=roi_private.allocate_marker(polygon.id,p_user,'zone',ref);
     points:=points||jsonb_build_array(jsonb_build_object('id',ref,'x',(point->>'x')::float8,'y',(point->>'y')::float8,'markerId',mid));
    end loop;
-   result:=result||jsonb_build_array(jsonb_build_object('id',gen_random_uuid(),'kind',zone->>'kind','name',zone->>'name','points',points));
-  end loop;
+   result:=result||jsonb_build_array(jsonb_build_object('id',case when polygon.owner_id=p_user then (zone->>'id')::uuid else gen_random_uuid() end,'kind',zone->>'kind','name',zone->>'name','points',points));
+ end loop;
+ if polygon.owner_id=p_user and polygon.zone_preset is distinct from result then
+  update public.polygons set zone_preset=result where id=polygon.id returning * into polygon;
  end if;
  update public.workspaces set zones=result,zones_initialized=true,preset_revision=polygon.preset_revision,revision=revision+1,updated_at=now()
   where user_id=p_user and polygon_id=ws.polygon_id returning * into ws;
@@ -75,6 +76,22 @@ end $$;
 revoke all on function public.get_workspace() from public,anon;
 grant execute on function public.get_workspace() to authenticated;
 
+-- Repair conflicting/stale boundary metadata using reservations as the source of truth.
+-- Equipment IDs are never changed when loading a preset.
+create or replace function roi_private.restore_boundary_ids(p_polygon uuid) returns void
+language plpgsql set search_path='' as $$
+declare polygon public.polygons; point jsonb; points jsonb:='[]'; mid int;
+begin
+ select * into polygon from public.polygons where id=p_polygon for update;
+ for point in select value from jsonb_array_elements(polygon.geometry->'points') loop
+  mid:=roi_private.allocate_marker(p_polygon,polygon.owner_id,'boundary',(point->>'id')::uuid);
+  points:=points||jsonb_build_array(point||jsonb_build_object('markerId',mid));
+ end loop;
+ if polygon.geometry->'points' is distinct from points then
+  update public.polygons set geometry=jsonb_set(geometry,'{points}',points) where id=p_polygon;
+ end if;
+end $$;
+
 create or replace function public.open_polygon(p_polygon uuid,p_reload boolean default false) returns public.profiles
 language plpgsql security definer set search_path='' as $$
 declare uid uuid:=auth.uid(); result public.profiles; target public.workspaces; polygon public.polygons; reset_zones boolean; next_revision int;
@@ -83,19 +100,25 @@ begin
  perform 1 from public.profiles where id=uid for update;
  select * into target from public.workspaces where user_id=uid and polygon_id=p_polygon for update;
  select * into polygon from public.polygons where id=p_polygon for update;
- if polygon.id is null or (polygon.is_archived and (target.user_id is null or p_reload)) then raise exception 'Полигон удалён из пресетов или не найден.'; end if;
+ if polygon.id is null or (polygon.is_archived and (target.user_id is null or target.garage_removed or p_reload)) then raise exception 'Полигон удалён из пресетов или не найден.'; end if;
  select coalesce(max(revision),0)+1 into next_revision from public.workspaces where user_id=uid;
  reset_zones:=p_reload or (target.user_id is not null and not polygon.is_archived and polygon.owner_id<>uid and target.preset_revision<>polygon.preset_revision);
  if target.user_id is null then
   insert into public.workspaces(user_id,polygon_id,depth,preset_revision,revision) values(uid,p_polygon,jsonb_build_object('version',1,'width',1000,'height',700,'cols',20,'rows',14,'unit','условные единицы','cells',to_jsonb(array_fill(0,array[280]))),polygon.preset_revision,next_revision) returning * into target;
  else
-  update public.workspaces set revision=next_revision,updated_at=now() where user_id=uid and polygon_id=p_polygon returning * into target;
+  update public.workspaces set revision=next_revision,garage_removed=false,updated_at=now() where user_id=uid and polygon_id=p_polygon returning * into target;
  end if;
  if reset_zones then
-  delete from public.marker_reservations where polygon_id=p_polygon and owner_id=uid and purpose='zone';
+  -- Release the replaced personal zone IDs before allocating the new copy.
+  -- The owner's printed original is shared preset data and must remain reserved.
+  delete from public.marker_reservations r where r.polygon_id=p_polygon and r.owner_id=uid and r.purpose='zone'
+   and not (polygon.owner_id=uid and exists(select 1 from jsonb_array_elements(polygon.zone_preset) z
+    cross join lateral jsonb_array_elements(z->'points') point where point->>'id'=r.reference_id::text));
   update public.workspaces set zones='[]',routes='[]',zones_initialized=false,preset_revision=polygon.preset_revision,registration_status='garage'
    where user_id=uid and polygon_id=p_polygon returning * into target;
  end if;
+ perform roi_private.restore_boundary_ids(p_polygon);
+ if reset_zones then update public.workspaces set preset_revision=(select preset_revision from public.polygons where id=p_polygon) where user_id=uid and polygon_id=p_polygon returning * into target; end if;
  update public.profiles set polygon_id=p_polygon,registration_status=target.registration_status where id=uid returning * into result;
  perform roi_private.load_zone_preset(uid);
  return result;
@@ -266,6 +289,22 @@ begin
 end $$;
 revoke all on function public.delete_equipment(uuid) from public,anon;
 grant execute on function public.delete_equipment(uuid) to authenticated;
+create or replace function public.delete_polygon_garage(p_polygon uuid) returns void
+language plpgsql security definer set search_path='' as $$
+declare uid uuid:=auth.uid();
+begin
+ if uid is null then raise exception 'Войдите в аккаунт.'; end if;
+ perform 1 from public.profiles where id=uid for update;
+ perform 1 from public.workspaces where user_id=uid and polygon_id=p_polygon and not garage_removed for update;
+ if not found then raise exception 'Ваш гараж на этом полигоне не найден или уже удалён.'; end if;
+ perform 1 from public.polygons where id=p_polygon for update;
+ delete from public.equipment where user_id=uid and polygon_id=p_polygon;
+ delete from public.marker_reservations where polygon_id=p_polygon and owner_id=uid and purpose='equipment';
+ update public.workspaces set routes='[]',garage_removed=true,registration_status='garage',revision=revision+1,updated_at=now() where user_id=uid and polygon_id=p_polygon;
+ update public.profiles set polygon_id=null,registration_status='polygon' where id=uid and polygon_id=p_polygon;
+end $$;
+revoke all on function public.delete_polygon_garage(uuid) from public,anon;
+grant execute on function public.delete_polygon_garage(uuid) to authenticated;
 revoke all on function public.advance_setup() from public,anon;
 grant execute on function public.advance_setup() to authenticated;
 revoke all on all functions in schema roi_private from public,anon,authenticated;

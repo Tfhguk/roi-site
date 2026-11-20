@@ -271,17 +271,31 @@
       const polygon=polygons.find(p=>p.id===project.polygon_id),row=document.createElement("article");row.className="polygon-project";row.dataset.polygonId=polygon.id;
       const info=document.createElement("div"),name=document.createElement("strong");name.textContent=polygon.name+(polygon.is_archived?" · пресет удалён":"");
       info.append(name,paragraph("Техники: "+equipment.filter(e=>e.polygon_id===polygon.id).length+" · "+AppCloud.labels[project.polygon_id===profile.polygon_id?profile.registration_status:project.registration_status],"muted"));
-      row.append(info,button("Открыть гараж",()=>openProject(polygon.id)));list.append(row);
+      const actions=document.createElement("div");actions.className="project-actions";actions.append(button("Открыть гараж",()=>openProject(polygon.id)),button("Удалить гараж",()=>deleteGarage(polygon.id),"danger"));
+      row.append(info,actions);list.append(row);
     }
     const pager=$("projectPager");pager.replaceChildren();pager.hidden=entries.length<=size;
     if(!pager.hidden)pager.append(button("←",()=>{projectPage--;renderProjects();}),paragraph((projectPage+1)+" / "+Math.ceil(entries.length/size)),button("→",()=>{projectPage++;renderProjects();}));
   }
   async function openProject(id,reload=false){
-    if(dirty&&!confirm("Переключить полигон и отменить несохранённые изменения?"))return;
+    if(dirty&&!reload&&!confirm("Переключить полигон и отменить несохранённые изменения?"))return;
     profile=await AppCloud.selectPolygon(id,reload);polygons=await AppCloud.polygons();ws=await AppCloud.workspace();
     await Promise.all([refreshEquipment(),refreshProjects()]);dirty=false;draft=null;selectedWorkspace=null;selectedEquipmentId=null;hoveredEquipmentId=null;garagePage=0;garageFocusId=null;activate("garage");
     if(reload)notice("Оригинал пресета загружен. Гараж сохранён.");
   }
+  async function deleteGarage(id){
+    const polygon=polygons.find(p=>p.id===id);
+    if(!confirm("Удалить ваш гараж на полигоне «"+(polygon?.name||"")+"»? Вся ваша техника и её траектории на этом полигоне будут удалены. Зоны, карта глубины и общий пресет сохранятся."))return;
+    const wasActive=profile.polygon_id===id;
+    await AppCloud.rpc("delete_polygon_garage",{p_polygon:id});profile=await AppCloud.me();
+    [equipment,projects]=await Promise.all([AppCloud.equipment(),AppCloud.projects()]);
+    if(wasActive){
+      ws={zones:[],routes:[],depth:G.emptyDepth(),revision:0};dirty=false;selectedId=null;selectedWorkspace=null;draft=null;selectedVertex=-1;selectedEquipmentId=null;hoveredEquipmentId=null;garagePage=0;garageFocusId=null;reservations=[];
+      activate("polygon");closeEditor(false);
+    }else render();
+    notice("Ваш гараж удалён. Его ID техники освобождены; зоны и пресет сохранены.");
+  }
+  $("deleteGarage").onclick=()=>run(()=>deleteGarage(profile.polygon_id));
   async function previewPolygon(){
     if(!selectedId)return;
     const id=selectedId,[latest,personal,vehicles]=await Promise.all([AppCloud.polygons(),AppCloud.projectWorkspace(id),AppCloud.equipment()]);
