@@ -72,7 +72,7 @@
     syncLayout();setBackgroundInert(false);
     $("editorWindow").classList.remove("properties-open");$("toggleProperties").setAttribute("aria-expanded","false");
     releaseCamera();$("background").value="grid";drag=null;painting=false;
-    if(focus&&!$("drawingLauncher").hidden)$("openEditor").focus({preventScroll:true});
+    if(focus&&$("openEditor").getClientRects().length)$("openEditor").focus({preventScroll:true});
   }
   $("openEditor").onclick=openEditor;$("closeEditor").onclick=()=>closeEditor();$("editorBackdrop").onclick=()=>closeEditor();
   $("toggleProperties").onclick=()=>{const open=$("editorWindow").classList.toggle("properties-open");$("toggleProperties").setAttribute("aria-expanded",String(open));};
@@ -193,7 +193,8 @@
     const shortLabels={polygon:"Полигон",garage:"Гараж",zones:"Зоны",routes:"Траектории"};
     $("steps").replaceChildren(...stages.map((s,i)=>{const el=button((i+1)+". "+shortLabels[s],()=>{if(step===s)openEditor();else activate(s);},s===step?"current":"");el.disabled=!permitted(s);el.setAttribute("aria-current",s===step?"step":"false");return el;}));
     $("polygonTools").hidden=step!=="polygon";$("garage").hidden=step!=="garage";$("editor").hidden=step==="garage";
-    $("drawingLauncher").hidden=step==="garage";$("openEditor").textContent=shortLabels[step];$("editorTitle").textContent=shortLabels[step];
+    if(step==="polygon")$("newPolygon").before($("openEditor"));else $("drawingLauncher").querySelector(".controls").prepend($("openEditor"));
+    $("drawingLauncher").hidden=step==="garage"||step==="polygon";$("openEditor").textContent=shortLabels[step];$("editorTitle").textContent=shortLabels[step];
     $("closeEditor").textContent=step==="polygon"?"К списку полигонов":"Закрыть редактор";
     $("polygonNameLabel").hidden=step!=="polygon";
     $("drawingSummary").textContent=step==="polygon"?(selectedId?currentPolygon()?.name:"Новый полигон")+" · вершин: "+(draft?.points.length||0)+(selectedId?" · зон в пресете: "+(currentPolygon()?.zone_preset?.length||0):""):step==="zones"?"Зон: "+ws.zones.length:"Траекторий: "+ws.routes.length;
