@@ -64,7 +64,7 @@
     function validate(points){return analyze(points).reasons;}
     const cachedPlanners=new Map();
     function plan(start,end,objective="terrain"){
-      if(distance(start,end)<.1)return [{...start},{...end}];
+      if(distance(start,end)<.1){const assessment=assess(start,end);remembered=false;lastAnalysis={...assessment,preferredGradeDeg:preferred,hardGradeDeg:hard,steepFallback:metric&&assessment.maxGradeDeg>preferred+.05,remembered:false};return [{...start},{...end}];}
       remembered=false;
       for(const relaxed of metric?[false,true]:[false]){
         const key=objective+':'+relaxed,rule=limits(relaxed);

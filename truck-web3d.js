@@ -23,7 +23,7 @@
  function saveMemory(data){try{localStorage.setItem(memoryPrefix+data.key,JSON.stringify({updatedAt:Date.now(),data}));const keys=Object.keys(localStorage).filter(k=>k.startsWith(memoryPrefix)).sort((a,b)=>{try{return JSON.parse(localStorage.getItem(b)).updatedAt-JSON.parse(localStorage.getItem(a)).updatedAt;}catch{return 0;}});for(const key of keys.slice(8))localStorage.removeItem(key);}catch{if(active)active.memoryVolatile=true;}}
  document.querySelector('.note').insertAdjacentHTML('beforebegin','<button id="routeAnalysis" class="route-analysis">Анализ маршрута</button>');
  document.body.insertAdjacentHTML('beforeend','<dialog id="analysisDialog"><h2>Проходимость и память</h2><p id="analysisDetails"></p><p>Это оценка тестовой модели. Проверка учитывает габарит, уклоны, запас тяги с грузом, препятствия и прошлые неудачные проезды.</p><div class="dialog-actions"><button id="forgetRoutes">Забыть опыт</button><button id="closeAnalysis">Закрыть</button></div></dialog>');
- $('routeAnalysis').onclick=()=>{$('analysisDialog').showModal();};$('closeAnalysis').onclick=()=>$('analysisDialog').close();$('forgetRoutes').onclick=()=>active?.command('forget');
+ $('routeAnalysis').onclick=()=>{$('analysisDialog').showModal();};$('closeAnalysis').onclick=()=>$('analysisDialog').close();$('forgetRoutes').onclick=()=>{$('analysisDialog').close();active?.forget();};
  function analysisUI(sim){
   const a=sim.analysis,m=sim.learning;if(!a)return;
   $('routeAnalysis').textContent=(a.passable?(a.steepFallback?'Крутой участок':'Проезд допустим'):'Проезд не найден')+' · память: '+(m?.routes||0);
@@ -116,7 +116,7 @@
  }
  class BrowserTruck extends TruckModel.Simulation{
   static defaults={terrainReliefM:.75,maxGradeDeg:18,emergencyGradeDeg:25};
-  constructor(route,config,source,onUpdate,onError){super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;active=this;this.memoryKey=TruckLearning.key(source,route,config);this.command('configure',{source,route,config,memory:readMemory(this.memoryKey)});}
+  constructor(route,config,source,onUpdate,onError){super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;active=this;this.memoryKey=TruckLearning.key(source,route,config);this.configureArgs={source,route,config};this.command('configure',{...this.configureArgs,memory:readMemory(this.memoryKey)});}
   async command(op,values={}){
    try{const message=await rpc({op,session:this.session,...values});if(this.disposed)return;
     const v=await loadView();if(this.disposed)return;if(message.info){if(!message.info.reusedScene||!v.info)setupView(v,message.info);this.elevationMap=message.info.elevation;this.stations=message.info.stations;}
@@ -128,6 +128,7 @@
    }catch(error){if(!this.disposed){this.initializing=false;this.stage='error';this.error=error.message;this.onError(error.message);this.update();}}
   }
   get active(){return this.recovery?.mode!=='request'&&super.active;}
+  forget(){try{localStorage.removeItem(memoryPrefix+this.memoryKey);}catch{}if(this.stage==='error'||this.initializing){$('toast').hidden=true;this.initializing=true;this.command('configure',{...this.configureArgs,memory:null});}else this.command('forget');}
   renderStatus(){recoveryUI(this);}
   start(){this.command('start');}stop(){releaseInput();this.command('stop');}
   advance(seconds){if(this.busy||this.disposed||seconds<=0)return;if(this.recovery?.mode==='manual'){const now=performance.now();seconds=Math.min(.05,(now-(this.manualAt||now))/1000);this.manualAt=now;}this.busy=true;this.command('advance',{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
