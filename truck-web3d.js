@@ -15,6 +15,7 @@
  document.querySelector('.truck-side').hidden=true;document.querySelector('.note').textContent='Высоты — в метрах. Рельеф и техника тестовые. Физика рассчитывается в браузере.';
  document.querySelectorAll('#helpDialog li')[3].textContent='Цвет поверхности показывает высоту в метрах. Автопилот предпочитает пологий путь; если его нет — пытается пройти крутой склон. При неудаче пробует выехать и запрашивает ручное управление. Вручную нет удержания в точке: действуют тяжесть, тяга и трение. Красные отметки не создают физических стен.';
  $('showDepthValues').closest('label').hidden=true;$('showDepth').parentElement.lastChild.textContent='Высоты, м';
+ document.querySelector('.depth-toolbar').insertAdjacentHTML('afterend','<div class="terrain-toolbar" aria-label="Генерация рельефа"><button id="regenerateTerrain" title="Новый рельеф и пересчёт маршрута; текущий заезд сбросится">Перегенерировать рельеф</button><label for="terrainExtremity">Экстремальность</label><input id="terrainExtremity" type="range" min="0" max="100" step="1" value="50" aria-describedby="terrainHint"><output id="terrainExtremityValue" for="terrainExtremity">50%</output><span id="terrainHint">0 — ровно · 100 — крутые склоны. Заезд сбрасывается.</span></div>');
  document.querySelector('.metrics').insertAdjacentHTML('beforeend','<div><span>Высота поверхности</span><strong id="height3d">0,00 м</strong></div><div><span>Продольный / боковой наклон</span><strong id="slope3d">0° / 0°</strong></div>');
  for(const id of ['leftSpeed','rightSpeed'])$(id).parentElement.classList.add('shaft-metric');
  document.querySelector('#settingsForm .fields').insertAdjacentHTML('beforeend','<label>Перепад рельефа, м<input name="terrainReliefM" type="number" min="0" max="1.5" step="0.05" required></label><label>Предпочтительный уклон, °<input name="maxGradeDeg" type="number" min="2" max="25" step="1" required></label><label>Порог рискованного проезда, °<input name="emergencyGradeDeg" type="number" min="2" max="30" step="1" required></label>');
@@ -136,7 +137,7 @@
   const points=message.state.points,key=message.state.pathRole+JSON.stringify(points);if(key!==v.pathKey){if(v.path){v.root.remove(v.path);v.path.geometry.dispose();v.path.material.dispose();}v.path=line(v,points,message.state.pathRole==='to-charge'?0xfbbf24:message.state.pathRole==='to-work'?0xe879f9:0x22d3ee);v.root.add(v.path);v.pathKey=key;}v.dirty=true;
  }
  class BrowserTruck extends TruckModel.Simulation{
-  static defaults={terrainReliefM:.75,maxGradeDeg:18,emergencyGradeDeg:25};
+  static defaults={terrainReliefM:.75,terrainSeed:0,maxGradeDeg:18,emergencyGradeDeg:25};
   constructor(route,config,source,onUpdate,onError){super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;active=this;this.memoryKey=TruckLearning.key(source,route,config);this.configureArgs={source,route,config};this.command('configure',{...this.configureArgs,memory:readMemory(this.memoryKey)});}
   async command(op,values={}){
    try{const message=await rpc({op,session:this.session,...values});if(this.disposed)return;

@@ -3,7 +3,7 @@
  function prepare(input,work,settings,learning=null){
   const G=root.SetupGeometry,T=root.MetricTerrain,N=root.TruckNavigation;
   const source=structuredClone(input),config={terrainReliefM:.75,maxGradeDeg:18,emergencyGradeDeg:25,...settings};let route=structuredClone(work);
-  source.elevation=T.generate(source,config.metresPerUnit,config.terrainReliefM);
+  source.elevation=T.generate(source,config.metresPerUnit,config.terrainReliefM,config.terrainSeed??0);
   source.depth={...source.depth,unit:'m',cells:source.depth.cells.map((v,i)=>v===null?null:T.sample(source.elevation,(i%source.depth.cols+.5)*1000/source.depth.cols,(Math.floor(i/source.depth.cols)+.5)*700/source.depth.rows))};
   const cw=1000/source.depth.cols,ch=700/source.depth.rows,margin=.12/config.metresPerUnit,rectangles=[];
   for(let row=0;row<source.depth.rows;row++)for(let col=0;col<source.depth.cols;col++)if(source.depth.cells[row*source.depth.cols+col]===null){

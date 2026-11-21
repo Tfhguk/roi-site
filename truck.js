@@ -24,7 +24,10 @@
     const areas=source.zones.filter(z=>z.kind==="transport").map(z=>z.points);
     return G.routeErrors({maxDepth:5,maxSlope:2,boundaryClearance:5,markerClearance:40,...r},source.boundary,source.depth,areas,G.safetyContext(source.boundary,areas,G.routingMarkers(source.boundary,source.zones)));
   }
+  let terrainTimer;
   function reset(){
+    clearTimeout(terrainTimer);
+    if($('terrainExtremity')){$('terrainExtremity').value=Math.round(config.terrainReliefM/1.5*100);$('terrainExtremityValue').textContent=$('terrainExtremity').value+'%';}
     sim?.dispose?.();
     paused=false;last=0;notice="";$("toast").hidden=true;sim=null;navigation=null;hoveredCell=null;
     try{
@@ -79,6 +82,13 @@
   $("pause").onclick=()=>{paused=!paused;last=0;render();};
   $("stop").onclick=()=>{sim?.stop();paused=false;last=0;render();};
   $("reset").onclick=reset;
+  if($('regenerateTerrain')){
+    const slider=$('terrainExtremity');
+    function applyTerrain(){config={...config,terrainReliefM:Number(slider.value)*1.5/100};reset();}
+    slider.oninput=()=>{$('terrainExtremityValue').textContent=slider.value+'%';clearTimeout(terrainTimer);terrainTimer=setTimeout(applyTerrain,450);};
+    slider.onchange=()=>{clearTimeout(terrainTimer);applyTerrain();};
+    $('regenerateTerrain').onclick=()=>{let seed;do{seed=crypto.getRandomValues(new Uint32Array(1))[0];}while(seed===config.terrainSeed||seed===0);config={...config,terrainSeed:seed};applyTerrain();};
+  }
   function pause(){if(sim?.active)paused=true;last=0;render();}
   $("help").onclick=()=>{pause();$("helpDialog").showModal();};$("closeHelp").onclick=()=>$("helpDialog").close();
   $("settings").onclick=()=>{pause();for(const input of $("settingsForm").querySelectorAll("input"))input.value=["initialSoc","chargeTrigger"].includes(input.name)?config[input.name]*100:config[input.name];$("settingsDialog").showModal();};

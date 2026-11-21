@@ -1,5 +1,18 @@
 const assert=require('node:assert/strict');
 require('./polygon-geometry.js');require('./setup-geometry.js');global.MetricTerrain=require('./mujoco_sim/terrain.cjs');
+{
+ const input={zones:[]},make=(relief,seed)=>MetricTerrain.generate(input,.01,relief,seed),flat=make(0,123),low=make(.3,123),high=make(1.5,123);
+ assert(flat.cells.every(h=>h===0),'Zero extremity is a flat surface');
+ assert.deepEqual(low,make(.3,123),'A seed reproduces the same terrain');
+ assert.notDeepEqual(low.cells,make(.3,124).cells,'Regeneration changes the landscape');
+ assert(high.cells.every((h,i)=>Number.isFinite(h)&&h>=0&&h<=1.5&&Math.abs(h-low.cells[i]*5)<1e-12),'Increasing extremity scales all heights proportionally');
+ const slope=map=>Math.max(...map.cells.slice(1).map((h,i)=>Math.abs(h-map.cells[i])));
+ assert(slope(high)>slope(low)*4.99,'Slopes become steeper with extremity');
+ const pad={kind:'charging',points:[{x:100,y:100},{x:300,y:100},{x:300,y:300},{x:100,y:300}]},padded=MetricTerrain.generate({zones:[pad]},.01,1.5,123);
+ assert(Math.abs(MetricTerrain.sample(padded,150,150)-MetricTerrain.sample(padded,250,250))<1e-12,'Working zones remain level');
+ assert.throws(()=>make(.75,-1));assert.throws(()=>make(2,123));
+ console.log('PASS seeded terrain: repeatability, regeneration, flat surface, proportional heights and grades, level pads');
+}
 const N=require('./truck-navigation.js'),L=require('./truck-learning.js'),{defaults}=require('./truck-model.js'),G=global.SetupGeometry;
 const box=(id,kind,x,y,w,h)=>({id,name:id,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
 function field(degrees){const slope=Math.tan(degrees*Math.PI/180);return {unit:'m',cols:101,rows:71,cells:Array.from({length:7171},(_,i)=>(i%101)*.1*slope)};}
