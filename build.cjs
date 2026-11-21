@@ -11,7 +11,7 @@ const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.htm
   "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
   "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js",
-  "charging.html", "charging.css", "charging-model.js", "charging.js",
+  "charging.html", "charging.css", "charging-model.js", "charging.js", "ar.html", "ar.css", "ar-api.js", "ar.js",
   "truck.html", "truck.css", "truck-model.js", "truck-navigation.js", "truck-learning.js", "truck-command-log.js", "truck-traction.js", "truck-mujoco.js", "truck-web3d.js", "mujoco-browser-worker.js", "mujoco-scene.js", "mujoco-planning.js", "truck.js"];
 const VENDOR_FILES = [
   ["node_modules/@mujoco/mujoco/mujoco.js", "assets/vendor/mujoco.js"],

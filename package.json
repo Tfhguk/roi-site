@@ -20,7 +20,8 @@
     "test:pages": "node test_browser.cjs --dist --subpath && node test_polygon.cjs --dist --subpath",
     "test:setup": "node test_setup.cjs",
     "test:charging": "node test_charging.cjs",
-    "test:truck": "node test_truck.cjs"
+    "test:truck": "node test_truck.cjs",
+    "test:ar": "node test_ar.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

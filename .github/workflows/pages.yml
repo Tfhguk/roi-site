@@ -48,6 +48,10 @@ jobs:
         run: node test_commands.cjs && node test_learning.cjs && node test_traction.cjs && node test_recovery.cjs && node test_web3d.cjs
         env:
           TEST_BROWSER_CHANNEL: chromium
+      - name: Verify AR projector interface
+        run: node test_ar.cjs
+        env:
+          TEST_BROWSER_CHANNEL: chromium
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site
