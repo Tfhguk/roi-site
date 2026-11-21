@@ -15,7 +15,7 @@ def advance_until(sim, predicate, seconds):
 
 
 def main():
-    p = Planner(config={"initialSoc": .65})
+    p = Planner(config={"initialSoc": .65,"terrainReliefM":.3,"maxGradeDeg":10})
     try:
         s = Simulation(p)
         assert s.model.nhfield == 1
@@ -44,7 +44,7 @@ def main():
     finally:
         p.close()
     for loaded in [True, False]:
-        p = Planner(config={"initialSoc": .24, "capacityAh": .3, "targetSoc": .4})
+        p = Planner(config={"initialSoc": .24, "capacityAh": .3, "targetSoc": .4,"terrainReliefM":.3,"maxGradeDeg":10})
         try:
             s = Simulation(p)
             if not loaded:

@@ -12,8 +12,16 @@ const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.htm
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
   "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js",
   "charging.html", "charging.css", "charging-model.js", "charging.js",
-  "truck.html", "truck.css", "truck-model.js", "truck-navigation.js", "truck-mujoco.js", "truck.js"];
+  "truck.html", "truck.css", "truck-model.js", "truck-navigation.js", "truck-mujoco.js", "truck-web3d.js", "mujoco-browser-worker.js", "mujoco-scene.js", "mujoco-planning.js", "truck.js"];
 const VENDOR_FILES = [
+  ["node_modules/@mujoco/mujoco/mujoco.js", "assets/vendor/mujoco.js"],
+  ["node_modules/@mujoco/mujoco/mujoco.wasm", "assets/vendor/mujoco.wasm"],
+  ["node_modules/@mujoco/mujoco/README.md", "assets/vendor/README-mujoco.md"],
+  ["mujoco_sim/LICENSE-MuJoCo.txt", "assets/vendor/LICENSE-mujoco.txt"],
+  ["node_modules/three/build/three.module.js", "assets/vendor/three.module.js"],
+  ["node_modules/three/build/three.core.js", "assets/vendor/three.core.js"],
+  ["node_modules/three/LICENSE", "assets/vendor/LICENSE-three.txt"],
+  ["mujoco_sim/terrain.cjs", "mujoco-terrain.js"],
   ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
   ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
   ["node_modules/js-aruco2/src/aruco.js", "assets/vendor/aruco-detector.js"],
@@ -94,6 +102,9 @@ function build() {
     write(name, content);
   }
   for (const [source, target] of VENDOR_FILES) write(target, fs.readFileSync(path.join(ROOT, source)));
+  const releaseHash=createHash('sha256');
+  for(const name of files.slice().sort())releaseHash.update(fs.readFileSync(path.join(DIST,name)));
+  const release=releaseHash.digest('hex').slice(0,16);
   for (const name of SOURCE_FILES.filter(name => name.endsWith(".html"))) {
     const html = fs.readFileSync(path.join(DIST, name), "utf8").replace(/\b(src|href)="([^"?#]+\.(?:js|css))"/g, (match, attr, asset) => {
       const file = path.join(DIST, asset);
@@ -101,7 +112,7 @@ function build() {
       const version = createHash("sha256").update(fs.readFileSync(file)).digest("hex").slice(0, 16);
       return attr + '="' + asset + '?v=' + version + '"';
     });
-    fs.writeFileSync(path.join(DIST, name), html);
+    fs.writeFileSync(path.join(DIST, name), html.replace('</head>','<meta name="roi-build" content="'+release+'"></head>'));
   }
   write("index.html", fs.readFileSync(path.join(DIST, "login.html")));
   write("_headers", "/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: camera=(self), microphone=()\n/*.html\n  Cache-Control: no-cache\n/*.js\n  Cache-Control: no-cache\n");

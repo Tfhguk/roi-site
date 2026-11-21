@@ -1,0 +1,26 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http'),{chromium}=require('playwright');
+(async()=>{
+ const server=http.createServer((req,res)=>{const file=path.resolve('dist',decodeURIComponent(req.url.split('?')[0]).replace(/^\/roi-site\//,''));if(!file.startsWith(path.resolve('dist')+path.sep)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}res.setHeader('Content-Type',file.endsWith('.wasm')?'application/wasm':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(fs.readFileSync(file));});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const browser=await chromium.launch({channel:process.env.TEST_BROWSER_CHANNEL||'msedge',headless:true,args:['--enable-unsafe-swiftshader']});
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[];let nativeCalls=0;
+  page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(r.url().includes('/api/mujoco'))nativeCalls++;});
+  page.on('console',m=>{if(m.type()==='error')console.log(m.text());});
+  await page.goto('http://127.0.0.1:'+server.address().port+'/roi-site/truck.html');
+  await page.waitForFunction(()=>document.querySelector('#mujoco3d')&&document.querySelector('#stage').textContent==='Готов к запуску'||!document.querySelector('#toast').hidden,{},{timeout:90000});
+  assert.equal(await page.locator('#toast').isVisible(),false,await page.locator('#toast').textContent());assert.equal(await page.locator('#mujoco3d').count(),1);assert.equal(nativeCalls,0);
+  console.log('Ready browser MuJoCo');
+  await page.locator('#speed').selectOption('60');await page.locator('#start').click();
+  await page.waitForFunction(()=>/рейсов [1-9]/.test(document.querySelector('#clock').textContent)||!document.querySelector('#toast').hidden,{},{timeout:90000});
+  assert.equal(await page.locator('#toast').isVisible(),false,await page.locator('#toast').textContent());assert.match(await page.locator('#clock').textContent(),/рейсов [1-9]/);
+  await page.locator('#pause').click();const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#download').click()]);const result=JSON.parse(fs.readFileSync(await download.path(),'utf8'));assert.equal(result.engine,'MuJoCo WASM');assert(result.performance.steps>0);assert(result.elevation.cells.length>0);assert(result.result.deliveries>=1);
+  await page.locator('#reset').click();await page.waitForFunction(()=>document.querySelector('#stage').textContent==='Готов к запуску');assert.match(await page.locator('#clock').textContent(),/^00:00/);
+  const area=await page.locator('#mujoco3d').boundingBox();await page.mouse.move(area.x+area.width/2,area.y+area.height/2);await page.mouse.down({button:'right'});await page.mouse.move(area.x+area.width/2+40,area.y+area.height/2+20);await page.mouse.up({button:'right'});await page.mouse.wheel(0,100);
+  {const [d]=await Promise.all([page.waitForEvent('download'),page.locator('#download').click()]);const x=JSON.parse(fs.readFileSync(await d.path(),'utf8'));assert(x.camera.azimuth<90&&x.camera.elevation>-55&&x.camera.zoom>1);assert(x.performance.reusedScene,'Warm reset reuses compiled MuJoCo scene');}
+  assert(await page.locator('#mujoco3d').evaluate(el=>['contextmenu','dragstart','selectstart'].every(type=>!el.dispatchEvent(new Event(type,{bubbles:true,cancelable:true})))));
+  for(const viewport of [{width:1440,height:900},{width:390,height:844},{width:360,height:640}]){await page.setViewportSize(viewport);assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight&&document.documentElement.scrollWidth<=innerWidth));await page.locator('#settings').click();assert(await page.locator('#settingsDialog').evaluate(e=>e.scrollHeight<=e.clientHeight+1));await page.locator('#cancelSettings').click();}
+  await page.setViewportSize({width:1440,height:900});await page.screenshot({path:'test-output/web3d-interface.png'});assert.deepEqual(errors,[]);console.log('PASS public 3D: real MuJoCo WASM, no Python API, hauling, JSON, reset, subpath assets, responsive layout');
+  await page.locator('#settings').click();await page.locator('[name=initialSoc]').fill('24');await page.locator('[name=capacityAh]').fill('0.3');await page.locator('#settingsForm button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#stage').textContent==='Готов к запуску');await page.locator('#start').click();
+  await page.waitForFunction(()=>document.querySelector('#instruction').textContent.startsWith('После зарядки:')||!document.querySelector('#toast').hidden,{},{timeout:120000});assert.equal(await page.locator('#toast').isVisible(),false,await page.locator('#toast').textContent());assert.match(await page.locator('#instruction').textContent(),/на склад с грузом/);assert.equal(nativeCalls,0);console.log('PASS public 3D: dynamic charger detour, charging, cargo-based return with extreme terrain');
+ }finally{await browser.close();server.close();}
+})().catch(e=>{console.error(e);process.exitCode=1});

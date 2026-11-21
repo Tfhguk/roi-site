@@ -34,9 +34,11 @@
     }
     const obstacles=[...stations.map(s=>s.obstacle),...(source.routingObstacles||[])],options={...policy,obstacles};
     function validate(points){return G.routeErrors({points,...options},source.boundary,source.depth,areas,safety);}
+    let cachedPlanner;
     function plan(start,end){
       if(distance(start,end)<.1)return [{...start},{...end}];
-      const points=G.findPath(start,end,source.boundary,source.depth,options);
+      cachedPlanner??=G.createPathPlanner(source.boundary,source.depth,options);
+      const points=cachedPlanner(start,end);
       return points&&!validate(points).length?points:null;
     }
     function estimate(points){

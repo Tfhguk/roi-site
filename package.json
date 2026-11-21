@@ -1,8 +1,10 @@
 {
   "dependencies": {
+    "@mujoco/mujoco": "^4.0.1",
     "js-aruco2": "^2.0.0",
     "jspdf": "^4.2.1",
-    "selfsigned": "^5.5.0"
+    "selfsigned": "^5.5.0",
+    "three": "^0.187.0"
   },
   "name": "equipment-aruco",
   "private": true,

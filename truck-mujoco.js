@@ -21,19 +21,19 @@
   $("showDepth").parentElement.lastChild.textContent="Высоты, м";
   document.querySelector('.metrics').insertAdjacentHTML('beforeend','<div><span>Высота поверхности</span><strong id="height3d">0,00 м</strong></div><div><span>Продольный / боковой наклон</span><strong id="slope3d">0° / 0°</strong></div>');
   for(const id of ['leftSpeed','rightSpeed'])$(id).parentElement.classList.add('shaft-metric');
-  document.querySelector('#settingsForm .fields').insertAdjacentHTML('beforeend','<label>Перепад рельефа, м<input name="terrainReliefM" type="number" min="0" max="0.6" step="0.05" required></label><label>Предельный уклон, °<input name="maxGradeDeg" type="number" min="2" max="20" step="1" required></label>');
+  document.querySelector('#settingsForm .fields').insertAdjacentHTML('beforeend','<label>Перепад рельефа, м<input name="terrainReliefM" type="number" min="0" max="1.5" step="0.05" required></label><label>Предельный уклон, °<input name="maxGradeDeg" type="number" min="2" max="25" step="1" required></label>');
   $("depthRange").textContent="Мышь — вращение · колесо — масштаб";
   let current=null,drag=null;
-  function cameraCommand(values){return current?current.command("camera",values):Promise.resolve();}
+  function cameraCommand(values){if(!current)return Promise.resolve();Object.assign(current.cameraPending??={},values);return current.flushCamera();}
   $("follow3d").onclick=()=>cameraCommand({follow:true,zoom:1});
   $("overview3d").onclick=()=>cameraCommand({follow:false,zoom:1});
   image.onpointerdown=e=>{if(e.button>2)return;e.preventDefault();image.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY};image.style.cursor="grabbing";};
   image.onpointerup=image.onpointercancel=e=>{e.preventDefault();drag=null;image.style.cursor="grab";if(image.hasPointerCapture(e.pointerId))image.releasePointerCapture(e.pointerId);};
   image.onlostpointercapture=()=>{drag=null;image.style.cursor="grab";};
-  image.onpointermove=e=>{if(!drag||!current)return;current.azimuth+=(e.clientX-drag.x)*.5;current.elevation=Math.max(-89,Math.min(-10,current.elevation-(e.clientY-drag.y)*.3));drag={x:e.clientX,y:e.clientY};if(!current.cameraBusy){current.cameraBusy=true;cameraCommand({azimuth:current.azimuth,elevation:current.elevation}).finally(()=>{current.cameraBusy=false;});}};
+  image.onpointermove=e=>{if(!drag||!current)return;current.azimuth-=(e.clientX-drag.x)*.5;current.elevation=Math.max(-89,Math.min(-10,current.elevation+(e.clientY-drag.y)*.3));drag={x:e.clientX,y:e.clientY};cameraCommand({azimuth:current.azimuth,elevation:current.elevation});};
   image.addEventListener("wheel",e=>{e.preventDefault();if(current){current.zoom=Math.max(.2,Math.min(4,current.zoom*Math.exp(e.deltaY*.001)));cameraCommand({zoom:current.zoom});}},{passive:false});
   class Remote extends TruckModel.Simulation{
-    static defaults={terrainReliefM:.3,maxGradeDeg:10};
+    static defaults={terrainReliefM:.75,maxGradeDeg:18};
     constructor(route,config,source,onUpdate,onError){
       super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;this.azimuth=90;this.elevation=-55;this.zoom=1;current=this;
       this.command("configure",{source,route,config});
@@ -60,6 +60,7 @@
       return task.catch(error=>{if(!this.disposed){this.initializing=false;this.error=error.message;this.stage="error";this.onError(error.message);this.update();}});
     }
     start(){this.command("start");}
+    async flushCamera(){if(this.cameraBusy||this.disposed)return;this.cameraBusy=true;try{while(this.cameraPending&&!this.disposed){const values=this.cameraPending;this.cameraPending=null;await this.command('camera',values);}}finally{this.cameraBusy=false;}}
     stop(){this.command("stop");}
     advance(seconds){if(this.busy||this.disposed||seconds<=0)return;this.busy=true;this.command("advance",{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
     sample(){}

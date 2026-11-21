@@ -5,7 +5,8 @@ require(path.join(root,'polygon-geometry.js'));
 require(path.join(root,'setup-geometry.js'));
 const G=global.SetupGeometry,N=require(path.join(root,'truck-navigation.js'));
 const Truck=require(path.join(root,'truck-model.js')),defaults=Truck.defaults;
-const Terrain=require('./terrain.cjs');
+global.MetricTerrain=require('./terrain.cjs');global.TruckNavigation=N;
+const Planning=require('../mujoco-planning.js');
 let source,nav,route,config;
 const box=(id,kind,x,y,w,h)=>({id,name:id,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
 function initialize(message){
@@ -30,28 +31,9 @@ function initialize(message){
     route=G.planRoutes(source.boundary,source.zones,[{id:'truck',name:'Test truck',type:'truck'}],source.depth,{boundaryClearance:5,markerClearance:40}).routes.find(r=>r.purpose==='haul');
   }
   if(!route)throw Error('Could not generate working route');
-  source.elevation=Terrain.generate(source,config.metresPerUnit,config.terrainReliefM??.3);
-  // Keep old null cells as obstacles; plan using metres from the metric field.
-  source.depth={...source.depth,unit:'m',cells:source.depth.cells.map((v,i)=>v===null?null:Terrain.sample(source.elevation,(i%source.depth.cols+.5)*1000/source.depth.cols,(Math.floor(i/source.depth.cols)+.5)*700/source.depth.rows))};
-  const cw=1000/source.depth.cols,ch=700/source.depth.rows,margin=.12/config.metresPerUnit;
-  const rectangles=[];
-  for(let row=0;row<source.depth.rows;row++)for(let col=0;col<source.depth.cols;col++)if(source.depth.cells[row*source.depth.cols+col]===null){
-    const first=col;while(col+1<source.depth.cols&&source.depth.cells[row*source.depth.cols+col+1]===null)col++;
-    const previous=rectangles.find(r=>r.left===first&&r.right===col+1&&r.bottom===row);
-    if(previous)previous.bottom=row+1;else rectangles.push({left:first,right:col+1,top:row,bottom:row+1});
-  }
-  source.routingObstacles=rectangles.map(r=>[{x:r.left*cw-margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.bottom*ch+margin},{x:r.left*cw-margin,y:r.bottom*ch+margin}]);
-  const grade=config.maxGradeDeg??10;
-  if(!Number.isFinite(grade)||grade<2||grade>20)throw Error('Maximum grade must be between 2 and 20 degrees');
-  route={...route,maxDepth:1000,maxSlope:Math.tan(grade*Math.PI/180)*config.metresPerUnit*Math.min(1000/source.depth.cols,700/source.depth.rows)};
-  const planned=G.findPath(route.points[0],route.points.at(-1),source.boundary,source.depth,{...route,obstacles:source.routingObstacles,transportAreas:source.zones.filter(z=>z.kind==='transport').map(z=>z.points),markers:G.routingMarkers(source.boundary,source.zones)});
-  if(!planned)throw Error('No terrain-safe path for the selected maximum grade');
-  route.points=planned;
-  source.routes=[...source.routes.filter(r=>r.id!==route.id),route];
-  nav=N.create(source,config,route);
-  if(!nav.stations.length)throw Error('Charging station does not fit in charging zone');
-  if(nav.validate(route.points).length)throw Error(nav.validate(route.points).join('; '));
-  return {source,route,stations:nav.stations,config};
+  const prepared=Planning.prepare(source,route,config);
+  source=prepared.source;route=prepared.route;config=prepared.config;nav=prepared.navigation;
+  delete prepared.navigation;return prepared;
 }
 readline.createInterface({input:process.stdin}).on('line',line=>{
   try{const m=JSON.parse(line);let result;

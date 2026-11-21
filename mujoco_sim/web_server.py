@@ -37,6 +37,7 @@ class Engine:
         self.follow = False
         self.azimuth, self.elevation, self.zoom = 90., -55., 1.
         self.depth = True
+        self.scene_key = None
         try:
             while True:
                 message, future = self.jobs.get()
@@ -56,6 +57,12 @@ class Engine:
     def command(self, m):
         op = m["op"]
         if op == "configure":
+            key=json.dumps([m['source'],m['route'],m['config']],sort_keys=True)
+            if self.sim and self.scene_key==key:
+                self.sim.reset(autostart=False)
+                self.session,self.distance=m['session'],0.
+                result=self.snapshot();result['elevation']=self.sim.scene['source']['elevation']
+                return result
             planner = Planner(config=m["config"], source=m["source"], route=m["route"])
             try:
                 sim = Simulation(planner)
@@ -74,6 +81,7 @@ class Engine:
                 self.planner.close()
             self.sim, self.planner, self.renderer = sim, planner, renderer
             self.session, self.distance = m["session"], 0.
+            self.scene_key=key
         elif not self.sim or m.get("session") != self.session:
             raise ValueError("Simulation session changed; retry after reset")
         elif op == "start":
@@ -166,9 +174,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path in {"/", "/truck.html"}:
+        if self.path == "/":
             self.send_response(302)
-            self.send_header("Location", "/truck.html?mujoco=1")
+            self.send_header("Location", "/truck.html")
             self.end_headers()
             return
         name = self.path.split("?", 1)[0].lstrip("/") or "truck.html"
@@ -205,7 +213,7 @@ def main():
     args = parser.parse_args()
     server = LocalServer(("127.0.0.1", args.port), Handler)
     server.engine = Engine()
-    url = f"http://127.0.0.1:{server.server_port}/truck.html?mujoco=1"
+    url = f"http://127.0.0.1:{server.server_port}/truck.html"
     print("MuJoCo interface: "+url, flush=True)
     if not args.no_browser:
         webbrowser.open(url)

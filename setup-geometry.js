@@ -307,8 +307,12 @@
     return !routeErrors({points:simplified,...limits},polygon,depth,limits.transportAreas,graph.safety).length?simplified.map(p=>({...p})):null;
   }
   function findPath(start,end,polygon,depth,options={}) {
+    return createPathPlanner(polygon,depth,options)(start,end);
+  }
+  function createPathPlanner(polygon,depth,options={}) {
     validateDepth(depth);const limits=plannerLimits(options);
-    return searchPath(start,end,polygon,depth,limits,makeGraph(polygon,depth,limits));
+    const graph=makeGraph(polygon,depth,limits);
+    return (start,end)=>searchPath(start,end,polygon,depth,limits,graph);
   }
   function equipmentRole(type){
     const roles={truck:{label:"Самосвал",baseKind:"warehouse",hauls:true},bulldozer:{label:"Бульдозер",baseKind:"warehouse",hauls:false},loader:{label:"Погрузчик",baseKind:"mining",hauls:false},charging_station:{label:"Зарядная станция",baseKind:null,hauls:false,stationary:true},other:{label:"Иное",baseKind:null,hauls:false,manual:true}};
@@ -355,5 +359,5 @@
     }
     return {routes,unreachable};
   }
-  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,hitsObstacles,equipmentRole,vehicleRouteErrors});
+  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,createPathPlanner,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,hitsObstacles,equipmentRole,vehicleRouteErrors});
 })(globalThis);

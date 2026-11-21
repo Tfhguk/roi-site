@@ -44,6 +44,10 @@ jobs:
         run: npm run test:truck
         env:
           TEST_BROWSER_CHANNEL: chromium
+      - name: Verify browser MuJoCo simulation
+        run: node test_web3d.cjs
+        env:
+          TEST_BROWSER_CHANNEL: chromium
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site
