@@ -5,11 +5,11 @@ let recovery,leg,watch,manualInput={drive:0,turn:0,until:0};
 let knowledge,lastMemoryRevision=-1,trace=[],traceRole;
 let commands,lastCommandRevision=-1;
 let supportGeoms=[];
+let throttle;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),angle=v=>Math.atan2(Math.sin(v),Math.cos(v));
 const joint=name=>{const id=engine.mj_name2id(model,3,name);return {q:model.jnt_qposadr[id],d:model.jnt_dofadr[id]};};
 const actuator=name=>engine.mj_name2id(model,19,name);
 function pose(){return {x:scene.spawn[0]+data.qpos[ids.x.q],y:scene.spawn[1]+data.qpos[ids.y.q],yaw:data.qpos[ids.yaw.q]};}
-function gradient(x,y){const e=.02,h=scene.height;return [(h(x+e,y)-h(x-e,y))/(2*e),(h(x,y+e)-h(x,y-e))/(2*e)];}
 async function configure(m){
  self.postMessage({progress:'Загрузка MuJoCo'});
  enginePromise??=import('./assets/vendor/mujoco.js').then(module=>module.default());engine=await enginePromise;
@@ -29,6 +29,7 @@ async function configure(m){
  reference=new TruckModel.Simulation({...prepared.route,continuous:true},prepared.config,prepared.navigation);
  recovery={mode:'auto',attempts:0,message:'',events:[]};leg=null;watch=null;manualInput={drive:0,turn:0,until:0};
  commands=TruckCommandLog.create();lastCommandRevision=-1;
+ throttle=TruckTraction.createThrottle();
  const arrived=reference.arrived.bind(reference);
  reference.arrived=()=>{const final=reference.index===(reference.direction===1?reference.points.length-1:0);if(final)rememberPassage(true);if(leg&&reference.pathRole!==leg.role)leg=null;if(leg&&final){reference.points=leg.points;reference.direction=leg.direction;reference.index=leg.direction===1?leg.points.length-1:0;leg=null;}arrived();if(final){trace=[];traceRole=null;}};
  data.qpos[ids.yaw.q]=Math.atan2(reference.points[1].y-reference.y,reference.points[1].x-reference.x);
@@ -97,11 +98,11 @@ function finishRecovery(){
 function monitor(p,dt,error,yawError){
  if(recovery.progress&&Math.hypot(p.x-recovery.progress.x,p.y-recovery.progress.y)>.75){recovery.attempts=0;recovery.progress=null;}
  const moving=reference.stage==='driving',turning=['turning','dock-align'].includes(reference.stage);
- const expected=moving&&(reference.v>.005||error>.025)||turning&&(Math.abs(reference.omega)>.02||Math.abs(yawError)>.15)||reference.stage==='waiting'&&(error>.025||Math.abs(yawError)>.15);
+ const expected=(moving||turning||reference.stage==='waiting')&&error>.01||moving&&reference.v>.005||turning&&(Math.abs(reference.omega)>.02||Math.abs(yawError)>.15)||reference.stage==='waiting'&&Math.abs(yawError)>.15;
  if(!expected){watch=null;return;}
  if(!watch||watch.stage!==reference.stage){watch={...p,stage:reference.stage,elapsed:0};return;}
  watch.elapsed+=dt;if(watch.elapsed<3)return;
- const progressed=moving?Math.hypot(p.x-watch.x,p.y-watch.y)>.025:Math.abs(angle(p.yaw-watch.yaw))>.06;
+ const progressed=Math.hypot(p.x-watch.x,p.y-watch.y)>.025||turning&&Math.abs(angle(p.yaw-watch.yaw))>.06;
  watch=null;if(!progressed)recover();
 }
 function controlledTarget(p,dt){
@@ -132,23 +133,34 @@ function step(){
  recordCommands(p);
  if((recovery.mode==='auto'&&['driving','turning'].includes(reference.stage))||recovery.mode==='manual')tracePassage(p);
  // The supervisory controller waits for the physical chassis at corners/docks.
- const advancing=error<.03&&Math.abs(yawError)<.2||!['driving','turning','dock-align','waiting','station'].includes(reference.stage);
+ const capture=recovery.mode==='auto'&&['turning','dock-align','waiting'].includes(reference.stage)&&error>.008;
+ const advancing=!capture&&error<.03&&Math.abs(yawError)<.2||!['driving','turning','dock-align','waiting','station'].includes(reference.stage);
  let target;
  if(recovery.mode==='auto'){
   if(advancing)reference.advance(dt);else stats.heldSteps++;
   if(leg&&reference.pathRole!==leg.role)leg=null;
   monitor(p,dt,error,yawError);
-  target={x:reference.x,y:reference.y,yaw:reference.psi,v:advancing?reference.v:0,omega:advancing?reference.omega:0};
+  target={x:reference.x,y:reference.y,yaw:reference.psi,v:advancing||reference.stage==='driving'?reference.v:0,omega:advancing?reference.omega:0};
+  if(capture)target={x:reference.x,y:reference.y,yaw:reference.psi,driveYaw:Math.atan2(reference.y-p.y,reference.x-p.x),v:Math.min(c.speed,Math.sqrt(2*c.acceleration*error)),omega:0};
  }
  if(recovery.mode!=='auto'){target=controlledTarget(p,dt);auxiliaryTime(dt,p,target);}
- const mass=truckMass,grad=gradient(p.x,p.y),vx=data.qvel[ids.x.d],vy=data.qvel[ids.y.d];
+ const mass=truckMass,grad=TruckTraction.supportGradient(scene.height,p,c.trackWidth),vx=data.qvel[ids.x.d],vy=data.qvel[ids.y.d];
+ const throttleGoal=capture?reference:reference.target();
+ const phase=recovery.mode==='auto'&&(reference.stage==='driving'||capture)?[reference.pathRole,throttleGoal.x,throttleGoal.y,reference.direction].join(':'):null;
+ target.driveBoost=throttle.update(c,p,target,[vx,vy],dt,phase,capture?error:Math.hypot(throttleGoal.x-p.x,throttleGoal.y-p.y));stats.driveBoost=target.driveBoost;
  data.qfrc_applied.fill(0);
- const traction=TruckTraction.forces(c,mass,p,target,grad,[vx,vy],data.qvel[ids.yaw.d],recovery.mode==='manual');
- let grounded=false;
+ let grounded=false,nx=0,ny=0,nz=0;
  // Both the vector and each borrowed contact have Embind handles. Release
  // both; fetching data.contact repeatedly leaked a vector per contact/tick.
  const contacts=data.contact;
- try{for(let i=0;i<data.ncon;i++){const contact=contacts.get(i);try{grounded||=(contact.geom1===0&&supportGeoms.includes(contact.geom2))||(contact.geom2===0&&supportGeoms.includes(contact.geom1));}finally{contact.delete();}}}finally{contacts.delete();}
+ try{for(let i=0;i<data.ncon;i++){const contact=contacts.get(i);try{
+  const support=(contact.geom1===0&&supportGeoms.includes(contact.geom2))||(contact.geom2===0&&supportGeoms.includes(contact.geom1));
+  if(support){grounded=true;const weight=Math.max(1e-7,-contact.dist),normal=contact.frame,sign=normal[2]>=0?1:-1;nx+=weight*normal[0]*sign;ny+=weight*normal[1]*sign;nz+=weight*Math.abs(normal[2]);}
+ }finally{contact.delete();}}}finally{contacts.delete();}
+ // Predict chassis attitude from its footprint, but compensate gravity from
+ // the surfaces actually carrying the truck. At a crest these differ sharply.
+ const contactGradient=grounded?[-nx/Math.max(1e-12,nz),-ny/Math.max(1e-12,nz)]:grad;
+ const traction=TruckTraction.forces(c,mass,p,target,contactGradient,[vx,vy],data.qvel[ids.yaw.d],recovery.mode==='manual');
  if(grounded){data.qfrc_applied[ids.x.d]=traction.fx;data.qfrc_applied[ids.y.d]=traction.fy;data.qfrc_applied[ids.yaw.d]=traction.torque;}
  // Fixed support spheres stand in for a rolling track. While moving they use
  // rolling resistance; at rest the full surface coefficient supplies braking.

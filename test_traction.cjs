@@ -5,11 +5,15 @@ const released=Traction.forces(c,1.4,p,{...target,x:100,y:100,yaw:2},[.7,.2],[.1
 assert.equal(released.fx,0);assert.equal(released.fy,0);assert.equal(released.torque,0);assert.equal(released.contactFriction,c.mu,'Released manual controls use full contact friction, without coordinate anchoring');
 const full=Traction.forces(c,1.4,p,{...target,v:.09},[.8,0],[0,0],0,true);assert(Math.hypot(full.fx,full.fy)<=full.driveLimit+1e-12);assert(full.normal<1.4*9.81,'Inclines reduce normal load and grip');
 const weak=Traction.forces({...c,mu:.1},1.4,p,{...target,v:.09},[.8,0],[0,0],0,true);assert(weak.driveLimit<full.driveLimit);assert(Math.hypot(weak.fx,weak.fy)<Math.hypot(full.fx,full.fy),'A weak surface cannot produce unlimited climbing force');
+const fitted=Traction.supportGradient((x,y)=>.3*x-.2*y,{x:2,y:3,yaw:.7},c.trackWidth);assert(Math.abs(fitted[0]-.3)<1e-10&&Math.abs(fitted[1]+.2)<1e-10,'Fit slope across the whole chassis in world coordinates');
+const edge=Traction.supportGradient((x,y)=>Math.max(0,x-2.02)*.5,{x:2,y:3,yaw:0},c.trackWidth);assert(edge[0]>0,'Front support sees the ramp before the centre does');
+const pi=Traction.createThrottle(),order={...target,x:2.03,v:.09};let boost=0;for(let i=0;i<500;i++)boost=pi.update(c,p,order,[0,0],.004,'leg',1);assert(boost>1&&boost<=4,'A slow truck progressively requests more drive effort');assert.equal(pi.update(c,p,order,[0,0],.004,null,1),0,'Manual/recovery/turning clears accumulated throttle');assert.equal(pi.update(c,p,order,[0,0],.004,'leg',0),0,'Do not carry throttle through the goal');
+const boosted=Traction.forces(c,1.4,p,{...order,driveBoost:boost},[.8,0],[0,0],0);assert(Math.hypot(boosted.fx,boosted.fy)<=boosted.driveLimit+1e-12,'Extra throttle still respects available traction');
 (async()=>{
  global.wasmModule=await import('@mujoco/mujoco');require('./polygon-geometry.js');require('./setup-geometry.js');
  Object.assign(global,{ChargingModel:require('./charging-model.js'),TruckModel:Truck,TruckNavigation:require('./truck-navigation.js'),TruckLearning:require('./truck-learning.js'),TruckCommandLog:require('./truck-command-log.js'),TruckTraction:Traction,MujocoPlanning:require('./mujoco-planning.js'),MujocoScene:require('./mujoco-scene.js')});
- const grade=35;let slope=Math.tan(grade*Math.PI/180);
- global.MetricTerrain={...require('./mujoco_sim/terrain.cjs'),generate:()=>({unit:'m',cols:101,rows:71,cells:Array.from({length:7171},(_,i)=>(i%101)*.1*slope)})};
+ const grade=35;let slope=Math.tan(grade*Math.PI/180),ramp=false;
+ global.MetricTerrain={...require('./mujoco_sim/terrain.cjs'),generate:()=>({unit:'m',cols:101,rows:71,cells:Array.from({length:7171},(_,i)=>{const x=(i%101)*.1;return (ramp?Math.max(0,Math.min(.6,x-3.6)):x)*slope;})})};
  const box=(id,kind,x,y,w,h)=>({id,name:id,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
  const source={boundary:box('p',null,20,20,960,660).points,zones:[box('t','transport',45,45,910,610),box('c','charging',100,470,160,140)],depth:SetupGeometry.emptyDepth(),routes:[]};
  const route={id:'slope',equipmentId:'truck',points:[{x:400,y:300},{x:800,y:300}],fromKind:'mining',toKind:'warehouse',markerClearance:0,boundaryClearance:5};source.routes=[route];
@@ -32,6 +36,11 @@ const weak=Traction.forces({...c,mu:.1},1.4,p,{...target,v:.09},[.8,0],[0,0],0,t
  const heapBefore=vm.runInThisContext('data.qpos.buffer.byteLength');assert(heapBefore>=16*1024*1024,'Inspect the shared WASM heap, not a copied joint vector');
  for(let i=0;i<300;i++)await request({op:'advance',seconds:1});
  const heapAfter=vm.runInThisContext('data.qpos.buffer.byteLength');assert(heapAfter<=heapBefore+16*1024*1024,'Contact vector handles must not leak memory over a long simulation');
+ ramp=true;slope=Math.tan(30*Math.PI/180);const rampRoute={...route,id:'ramp',points:[{x:340,y:300},{x:480,y:300}]},rampSource={...source,routes:[rampRoute]};
+ await request({op:'configure',source:rampSource,route:rampRoute,config:{...c,mu:.9,terrainReliefM:.5,maxGradeDeg:18,emergencyGradeDeg:25}});await request({op:'start'});
+ let crest;for(let i=0;i<55;i++){crest=await request({op:'advance',seconds:1});assert(!crest.state.error,crest.state.error);assert.equal(crest.state.recovery.mode,'auto','A traversable ramp must not require full manual throttle');if(crest.state.x>4.6)break;}
+ assert(crest.state.x>4.6,'Drive from flat ground up 30 degrees and across the crest to the plateau');assert.equal(crest.state.recovery.attempts,0);
  console.log('PASS traction: bounded drive, real MuJoCo friction, free downhill sliding without hidden anchors, more grip reduces sliding, 35 degree fallback starts');
  console.log('PASS traction: 300 seconds of contact checks without WASM heap growth ('+heapBefore+' -> '+heapAfter+')');
+ console.log('PASS traction: automatic 30 degree ramp entry, crest crossing and controlled exit with adaptive effort');
 })().catch(e=>{console.error(e);process.exitCode=1;});

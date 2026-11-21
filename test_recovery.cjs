@@ -30,5 +30,9 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  await driving();global.lockChassis=true;for(let i=0;i<15;i++){r=await request({op:'advance',seconds:1});if(r.state.recovery.mode==='back')break;}assert.equal(r.state.recovery.mode,'back');global.lockChassis=false;
  for(let i=0;i<18;i++){r=await request({op:'advance',seconds:1});if(r.state.recovery.mode==='auto')break;}assert.equal(r.state.recovery.mode,'auto','A temporary obstruction allows recovery and automatic continuation');assert(!r.state.error,r.state.error);
  const recoveredAt={x:r.state.x,y:r.state.y};for(let i=0;i<30;i++){r=await request({op:'advance',seconds:1});if(Math.hypot(r.state.x-recoveredAt.x,r.state.y-recoveredAt.y)>.8)break;}assert.equal(r.state.recovery.mode,'auto');assert(Math.hypot(r.state.x-recoveredAt.x,r.state.y-recoveredAt.y)>.8,'Recovery continues making actual progress on the new route');
- console.log('PASS recovery: physical stall, bounded reverse attempts, obstacle avoidance, no teleportation, operator handoff, manual drive/brake, preserved cargo/SOC, auto resume and clean reset');
+ await configure();await driving();global.lockChassis=true;
+ vm.runInThisContext('reference.transition("turning");reference.x=pose().x+.05;reference.y=pose().y;reference.psi=pose().yaw;reference.v=reference.omega=0;');
+ for(let i=0;i<8;i++){r=await request({op:'advance',seconds:1});if(r.state.recovery.attempts>0)break;}
+ assert(r.state.recovery.attempts>0,'A corner with only positional error must recover instead of waiting forever for rotation');global.lockChassis=false;
+ console.log('PASS recovery: physical stall, bounded reverse attempts, obstacle avoidance, no teleportation, operator handoff, manual drive/brake, preserved cargo/SOC, auto resume, clean reset and positional corner stall');
 })().catch(error=>{console.error(error);process.exitCode=1;});
