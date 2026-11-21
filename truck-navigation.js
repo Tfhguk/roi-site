@@ -34,11 +34,11 @@
     }
     const obstacles=[...stations.map(s=>s.obstacle),...(source.routingObstacles||[])],options={...policy,obstacles};
     function validate(points){return G.routeErrors({points,...options},source.boundary,source.depth,areas,safety);}
-    let cachedPlanner;
-    function plan(start,end){
+    const cachedPlanners=new Map();
+    function plan(start,end,objective="terrain"){
       if(distance(start,end)<.1)return [{...start},{...end}];
-      cachedPlanner??=G.createPathPlanner(source.boundary,source.depth,options);
-      const points=cachedPlanner(start,end);
+      if(!cachedPlanners.has(objective))cachedPlanners.set(objective,G.createPathPlanner(source.boundary,source.depth,{...options,objective}));
+      const points=cachedPlanners.get(objective)(start,end);
       return points&&!validate(points).length?points:null;
     }
     function estimate(points){
@@ -49,7 +49,7 @@
     }
     function chargeRoute(start,soc){
       if(!stations.length)throw Error(unavailable.length?"В зоне зарядки не помещается тестовая станция с подъездом: "+unavailable.join(", "):"Добавьте зону зарядки внутри транспортной зоны.");
-      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock);return points?[{points,station,...estimate(points)}]:[];}).sort((a,b)=>a.requiredSoc-b.requiredSoc);
+      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock,"shortest");return points?[{points,station,...estimate(points)}]:[];}).sort((a,b)=>a.length-b.length||a.requiredSoc-b.requiredSoc);
       if(!candidates.length)throw Error("Из текущего положения нет допустимого пути к зарядной станции по карте глубины.");
       const reachable=candidates.find(r=>r.requiredSoc+.055<soc);
       if(!reachable)throw Error("Заряда недостаточно для доезда до доступной станции с резервом. Увеличьте порог выезда на зарядку.");

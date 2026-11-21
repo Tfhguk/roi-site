@@ -207,7 +207,7 @@
   function plannerLimits(options={}) {
     const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2,boundaryClearance:options.boundaryClearance??0,markerClearance:options.markerClearance??0};
     if(!Object.values(limits).every(v=>Number.isFinite(v)&&v>=0&&v<=1000))throw Error("Глубина и перепад для автопостроения должны быть от 0 до 1000.");
-    return {...limits,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
+    return {...limits,objective:options.objective==="shortest"?"shortest":"terrain",...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
   }
   function makeGraph(polygon,depth,limits) {
     limits={...limits,safety:safetyContext(polygon,limits.transportAreas,limits.markers)};
@@ -231,11 +231,13 @@
       if(edges.has(i))return edges.get(i);
       const x=i%depth.cols,y=Math.floor(i/depth.cols),result=[...(links.get(i)||[])];
       if(i>=gridCount){edges.set(i,result);return result;}
-      for(const [dx,dy]of [[-1,0],[1,0],[0,-1],[0,1]]){
+      for(const [dx,dy]of (limits.objective==="shortest"?[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]:[[-1,0],[1,0],[0,-1],[0,1]])){
         const nx=x+dx,ny=y+dy,j=ny*depth.cols+nx;
         if(nx<0||nx>=depth.cols||ny<0||ny>=depth.rows||!allowed[j])continue;
         if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||hitsObstacles([nodes[i],nodes[j]],limits.obstacles)||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
-        const delta=Math.abs(depth.cells[i]-depth.cells[j]);result.push({i:j,peak:delta,variation:delta,length:dist(nodes[i],nodes[j])});
+        const delta=Math.abs(depth.cells[i]-depth.cells[j]);
+        const m=dx&&dy?metric(nodes[i],nodes[j]):{peak:delta,variation:delta,length:dist(nodes[i],nodes[j])};
+        if(m)result.push({i:j,...m});
       }
       edges.set(i,result);return result;
     }
@@ -260,7 +262,22 @@
     for(let i=1;i<points.length;i++){const m=segmentMetrics(points[i-1],points[i],polygon,depth,limits);if(!m)return null;result.peak=Math.max(result.peak,m.peak);result.variation+=m.variation;result.length+=m.length;}
     return result;
   }
-  // First minimize the steepest transition (bottleneck search). At that bound,
+  function shortestPath(start,end,graph,starts,ends){
+    const {nodes}=graph,lengths=new Float64Array(nodes.length).fill(Infinity),previous=new Int32Array(nodes.length).fill(-1);
+    const heap=new MinHeap((a,b)=>a.f-b.f),closed=new Uint8Array(nodes.length);
+    for(const item of starts){lengths[item.i]=item.length;heap.push({i:item.i,d:item.length,f:item.length+dist(nodes[item.i],end)});}
+    let goal=-1,best=Infinity;
+    while(heap.length){const item=heap.pop(),i=item.i;if(item.f>=best-EPS)break;if(closed[i]||item.d>lengths[i]+EPS)continue;closed[i]=1;
+      const finish=ends.get(i);if(finish&&item.d+finish.length<best){best=item.d+finish.length;goal=i;}
+      for(const edge of graph.neighbours(i)){const d=item.d+edge.length;if(closed[edge.i]||d>=lengths[edge.i]-EPS)continue;lengths[edge.i]=d;previous[edge.i]=i;heap.push({i:edge.i,d,f:d+dist(nodes[edge.i],end)});}
+    }
+    if(goal<0)return null;
+    const points=[];for(let i=goal;i>=0;i=previous[i])points.push(nodes[i]);points.reverse();points.unshift(start);points.push(end);
+    const result=[points[0]];let index=0;
+    while(index<points.length-1){let next=points.length-1;while(next>index+1&&!graph.metric(points[index],points[next]))next--;result.push(points[next]);index=next;}
+    return result.filter((p,i)=>!i||dist(p,result[i-1])>.1).map(p=>({...p}));
+  }
+  // Working routes first minimize the steepest transition (bottleneck search). At that bound,
   // minimize cumulative elevation changes, then distance. Smoothing must preserve
   // both terrain objectives; a merely legal straight line is not preferred.
   function searchPath(start,end,polygon,depth,limits,graph) {
@@ -272,6 +289,7 @@
       return [...near,...candidates.filter(item=>item.i>=graph.gridCount)].map(item=>({i:item.i,...graph.metric(p,nodes[item.i])})).filter(item=>item.peak!==undefined);
     }
     const starts=connectors(start),ends=new Map(connectors(end).map(item=>[item.i,item])),direct=graph.metric(start,end);
+    if(limits.objective==="shortest")return direct?[{...start},{...end}]:shortestPath(start,end,graph,starts,ends);
     let ceiling=direct?.peak??Infinity;
     const peaks=new Float64Array(nodes.length).fill(Infinity),bottlenecks=new MinHeap((a,b)=>a.peak-b.peak);
     for(const item of starts){peaks[item.i]=item.peak;bottlenecks.push({i:item.i,peak:item.peak});}
