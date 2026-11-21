@@ -100,18 +100,20 @@ class Engine:
             self.depth = bool(m["visible"])
         elif op != "state":
             raise ValueError("Unknown command")
-        return self.snapshot()
+        result=self.snapshot()
+        if op=='configure':
+            result['elevation']=self.sim.scene['source']['elevation']
+        return result
 
     def snapshot(self):
         s = self.sim
         points = np.array([[p["x"], p["y"]] for p in s.scene["source"]["boundary"]])*s.config["metresPerUnit"]
         cam = mujoco.MjvCamera()
-        cam.lookat[:] = [*s.xy, .08] if self.follow else [*points.mean(axis=0), 0]
+        cam.lookat[:] = [*s.xy, s.terrain.height(*s.xy)+.08] if self.follow else [*points.mean(axis=0), (s.terrain.minimum+s.terrain.maximum)/2]
         cam.distance = (.9 if self.follow else max(np.ptp(points, axis=0))*1.2)*self.zoom
         cam.azimuth, cam.elevation = self.azimuth, self.elevation
-        for i, value in enumerate(s.scene["source"]["depth"]["cells"]):
-            if value is not None:
-                s.model.geom(f"cell_{i}").rgba[3] = 1 if self.depth else 0
+        s.model.geom('terrain').matid[0]=s.model.material('height_material').id if self.depth else -1
+        s.model.geom('terrain').rgba[:]=[1,1,1,1] if self.depth else [.45,.48,.43,1]
         self.renderer.update_scene(s.data, camera=cam)
         s.draw_path(self.renderer.scene)
         output = BytesIO()
@@ -131,6 +133,9 @@ class Engine:
                 wR=(v+omega*s.config["trackWidth"]/2)/s.config["k"],
                 points=[dict(x=float(p[0]), y=float(p[1])) for p in s.path],
                 physicalPosition=s.data.xpos[s.model.body("truck").id].tolist(),
+                groundHeightM=s.terrain.height(*s.xy),heightMinM=s.terrain.minimum,heightMaxM=s.terrain.maximum,
+                pitchDeg=float(s.data.qpos[s.model.joint('pitch').qposadr[0]])*180/np.pi,
+                rollDeg=float(s.data.qpos[s.model.joint('roll').qposadr[0]])*180/np.pi,
                 history=s.history, station={"stage":station_stage} if station_stage else None))
 
 

@@ -3,7 +3,7 @@
   "use strict";
   const $=id=>document.getElementById(id),G=SetupGeometry,M=TruckModel;
   const clone=x=>structuredClone(x),colors={transport:"#60a5fa",mining:"#fb923c",warehouse:"#c4b5fd",charging:"#4ade80"};
-  let source=null,sim=null,navigation=null,paused=false,last=0,config={...M.defaults},loading=false,notice="",generation=0,mapTransform=null,hoveredCell=null;
+  let source=null,sim=null,navigation=null,paused=false,last=0,config={...M.defaults,...window.MuJoCoTruck?.defaults},loading=false,notice="",generation=0,mapTransform=null,hoveredCell=null;
   const fmt=(x,d=2)=>x.toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d});
   const box=(id,name,kind,x,y,w,h)=>({id,name,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
   function toast(message){$("toast").querySelector("span").textContent=message;$("toast").hidden=false;}
@@ -129,11 +129,11 @@
     const side=canvas("bodyView"),s=side.ctx;const k=Math.min(side.w/200,side.h/110);s.translate((side.w-200*k)/2,(side.h-110*k)/2);s.scale(k,k);s.fillStyle="#0b1221";s.fillRect(25,78,150,18);s.fillStyle="#fbbf24";s.fillRect(25,66,150,12);s.fillStyle="#38bdf8";s.fillRect(145,40,30,26);s.save();s.translate(35,65);s.rotate(-(sim?.theta||0));s.fillStyle="#fbbf24";s.fillRect(0,-29,103,29);s.fillStyle=sim?.payload>0?"#a16207":"#334155";s.fillRect(5,-25,93,19);s.restore();
   }
   function render(){
-    const active=Boolean(sim?.active),locked=active||loading;
+    const active=Boolean(sim?.active),locked=active||loading||sim?.initializing;
     for(const id of ["projectSelect","loadProject","truckSelect","routeSelect","generate"])$(id).disabled=locked;
-    $("start").disabled=loading||!sim||sim.stage!=="idle";$("pause").disabled=!active;$("stop").disabled=!active||sim.stage==="stopping";$("download").disabled=!sim;$("pause").textContent=paused?"Продолжить":"Пауза";
+    $("start").disabled=loading||!sim||sim.initializing||sim.stage!=="idle";$("pause").disabled=!active;$("stop").disabled=!active||sim.stage==="stopping";$("download").disabled=!sim;$("pause").textContent=paused?"Продолжить":"Пауза";
     $("reset").disabled=loading;$("settings").disabled=loading;
-    $("stage").textContent=(sim?M.labels[sim.stage]:"Выберите траекторию")+(paused&&active?" · пауза":"");
+    $("stage").textContent=(sim?.initializing?"Подготовка 3D сцены":sim?M.labels[sim.stage]:"Выберите траекторию")+(paused&&active?" · пауза":"");
     const t=sim?.time||0;$("clock").textContent=Math.floor(t/60).toString().padStart(2,"0")+":"+Math.floor(t%60).toString().padStart(2,"0")+" · ×"+(paused?0:$("speed").value)+" · рейсов "+(sim?.deliveries||0);
     $("vehicleName").textContent=truck()?.name||"Нет самосвала";
     for(const [id,v,u,d]of [["velocity",sim?.v||0," м/с",2],["distance",sim?.distance||0," м",2],["soc",(sim?.soc??config.initialSoc)*100," %",1],["payload",sim?.payload||0," кг",2],["tilt",(sim?.theta||0)*180/Math.PI,"°",0],["current",sim?.current||0," А",2],["leftSpeed",sim?.wL||0," рад/с",2],["rightSpeed",sim?.wR||0," рад/с",2]])$(id).textContent=fmt(v,d)+u;

@@ -23,6 +23,7 @@
           const reach=.16/scale,base={x:dock.x-Math.cos(heading)*(config.stationLengthM/scale/2+reach),y:dock.y-Math.sin(heading)*(config.stationLengthM/scale/2+reach)};
           const footprint=rectangle(base,config.stationLengthM/scale,config.stationWidthM/scale,heading),obstacle=rectangle(base,(config.stationLengthM+.04)/scale,(config.stationWidthM+.04)/scale,heading);
           if(!G.inPolygon(obstacle,zone.points)||!G.inPolygon(obstacle,source.boundary)||!G.inAreas(obstacle,areas,true))continue;
+          if(G.hitsObstacles([...obstacle,obstacle[0]],source.routingObstacles||[]))continue;
           if(G.clearanceErrors([...obstacle,obstacle[0]],{boundaryClearance:0,markerClearance:policy.markerClearance},safety).length)continue;
           if(source.routes.some(r=>r.points.length>1&&G.hitsObstacles(r.points,[obstacle]))||stations.some(s=>G.hitsObstacles([...obstacle,obstacle[0]],[s.obstacle])||G.hitsObstacles(s.footprint,[obstacle])))continue;
           station={id:zone.id,name:zone.name,dock:{...dock},centre:base,heading,dockHeading:Math.atan2(-Math.sin(heading),-Math.cos(heading)),lengthM:config.stationLengthM,widthM:config.stationWidthM,dimensionsStatus:"synthetic",footprint,obstacle};break;
@@ -31,7 +32,7 @@
       }
       if(station)stations.push(station);else unavailable.push(zone.name);
     }
-    const obstacles=stations.map(s=>s.obstacle),options={...policy,obstacles};
+    const obstacles=[...stations.map(s=>s.obstacle),...(source.routingObstacles||[])],options={...policy,obstacles};
     function validate(points){return G.routeErrors({points,...options},source.boundary,source.depth,areas,safety);}
     function plan(start,end){
       if(distance(start,end)<.1)return [{...start},{...end}];

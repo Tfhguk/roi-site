@@ -10,6 +10,7 @@ const assert=require('node:assert/strict'),{chromium}=require('playwright');
   await page.waitForFunction(()=>document.querySelector('#scene img')?.src.startsWith('data:image/jpeg'));
   assert.match(await page.locator('h1').textContent(),/MuJoCo/);
   const spawn={x:snapshots.at(-1).x,y:snapshots.at(-1).y};
+  assert(snapshots.at(-1).heightMaxM>snapshots.at(-1).heightMinM);assert.match(await page.locator('#height3d').textContent(),/м/);
   await page.locator('#speed').selectOption('20');await page.locator('#start').click();
   await page.waitForFunction(()=>parseFloat(document.querySelector('#distance').textContent.replace(',','.'))>.1,{},{timeout:45000});
   await page.locator('#pause').click();await page.waitForTimeout(2000);
@@ -19,11 +20,14 @@ const assert=require('node:assert/strict'),{chromium}=require('playwright');
   assert.equal(snapshots.at(-1).time,0);assert.equal(snapshots.at(-1).payload,0);
   assert(Math.abs(snapshots.at(-1).physicalPosition[0]-spawn.x)<1e-9&&Math.abs(snapshots.at(-1).physicalPosition[1]-spawn.y)<1e-9,'Actual rendered body matches spawn');
   await page.locator('#follow3d').click();await page.waitForTimeout(1500);await page.locator('#overview3d').click();
-  await page.locator('#settings').click();await page.locator('[name=initialSoc]').fill('50');await page.locator('#settingsForm button[type=submit]').click();await page.waitForTimeout(2000);assert.equal(snapshots.at(-1).soc,.5);
+  await page.locator('#settings').click();await page.locator('[name=initialSoc]').fill('50');await page.locator('#settingsForm button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#stage').textContent==='Готов к запуску');assert.equal(snapshots.at(-1).soc,.5);
   const visible=await page.evaluate(async()=>{const image=document.querySelector('#scene img');await image.decode();const c=document.createElement('canvas');c.width=96;c.height=60;const ctx=c.getContext('2d');ctx.drawImage(image,0,0,96,60);const data=ctx.getImageData(0,0,96,60).data;let min=255,max=0;for(let i=0;i<data.length;i+=4){min=Math.min(min,data[i]);max=Math.max(max,data[i]);}return max-min;});assert(visible>40,'Rendered scene remains visible after reset and settings');
+  const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#download').click()]);const exported=await download.path();const data=JSON.parse(require('fs').readFileSync(exported,'utf8'));assert.equal(data.engine,'MuJoCo');assert.equal(data.elevation.unit,'m');assert.equal(data.elevation.cells.length,data.elevation.cols*data.elevation.rows);
   for(const viewport of [{width:1440,height:900},{width:390,height:844},{width:360,height:640}]){
    await page.setViewportSize(viewport);
    assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight&&document.documentElement.scrollWidth<=innerWidth),'No page scroll');
+   assert(await page.locator('#scene').evaluate(e=>e.getBoundingClientRect().height>50),'Large enough 3D scene');
+   await page.locator('#settings').click();assert(await page.locator('#settingsDialog').evaluate(e=>e.scrollHeight<=e.clientHeight+1),'No settings scroll');await page.locator('#cancelSettings').click();
   }
   await page.setViewportSize({width:1440,height:900});await page.screenshot({path:'test-output/mujoco-interface.png'});
   assert.deepEqual(errors,[]);console.log('PASS MuJoCo browser: existing controls, real rendered image and physics, pause, reset spawn, camera, settings and responsive layout');

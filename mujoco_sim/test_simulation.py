@@ -18,6 +18,11 @@ def main():
     p = Planner(config={"initialSoc": .65})
     try:
         s = Simulation(p)
+        assert s.model.nhfield == 1
+        assert .1 < s.terrain.maximum-s.terrain.minimum <= .3
+        for x,y in [(1,1),(5,3),(8,5)]:
+            distance=mujoco.mj_rayHfield(s.model,s.data,s.model.geom('terrain').id,np.array([x,y,2.]),np.array([0.,0.,-1.]))
+            assert abs(2-distance-s.terrain.height(x,y))<.002, 'Physics and metric terrain sampling agree'
         spawn=s.xy.copy()
         s.data.qpos[s.q["x"]]+=1
         mujoco.mj_resetData(s.model,s.data)
