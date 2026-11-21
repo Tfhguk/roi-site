@@ -11,7 +11,7 @@ const ROOT = __dirname;
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
   ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".ico": "image/x-icon",
-  ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2" };
+  ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2", ".wasm": "application/wasm" };
 const LIBRARIES = new Set(["node_modules/jspdf/dist/jspdf.umd.min.js",
   "node_modules/js-aruco2/src/cv.js", "node_modules/js-aruco2/src/aruco.js"]);
 
@@ -72,7 +72,8 @@ async function serve(request, response) {
     return send(response, 404, "Not found");
   }
   try {
-    const file = await fsp.realpath(path.join(ROOT, relative));
+    const builtAsset = relative.startsWith("assets/vendor/") || relative === "mujoco-terrain.js";
+    const file = await fsp.realpath(path.join(ROOT, builtAsset ? "dist" : "", relative));
     const resolved = path.relative(ROOT, file);
     if (resolved.startsWith("..") || path.isAbsolute(resolved)) return send(response, 404, "Not found");
     const stat = await fsp.stat(file);

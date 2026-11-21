@@ -185,10 +185,10 @@ class Handler(BaseHTTPRequestHandler):
         if not file.is_relative_to((ROOT/"dist").resolve()) or not file.is_file():
             self.send_error(404)
             return
-        mime = {".js":"text/javascript", ".css":"text/css", ".html":"text/html", ".png":"image/png"}
+        mime = {".js":"text/javascript", ".css":"text/css", ".html":"text/html", ".png":"image/png", ".wasm":"application/wasm"}
         data = file.read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", mime.get(file.suffix, "application/octet-stream")+"; charset=utf-8")
+        self.send_header("Content-Type", mime.get(file.suffix, "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
