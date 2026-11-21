@@ -8,6 +8,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  global.self=global;let resolver;global.postMessage=m=>{if(m.id)resolver(m);};
  vm.runInThisContext(fs.readFileSync('mujoco-browser-worker.js','utf8').replace(/importScripts\([^;]+;/,'').replace("import('./assets/vendor/mujoco.js')","Promise.resolve(global.wasmModule)"));
  let serial=0;const request=m=>new Promise((resolve,reject)=>{resolver=result=>result.error?reject(Error(result.error)):resolve(result);global.onmessage({data:{...m,id:++serial,session:'recovery-test'}});});
+ global.TruckCommandLog=require('./truck-command-log.js');
  const configure=()=>request({op:'configure',source,route,config:{...TruckModel.defaults,terrainReliefM:.3,maxGradeDeg:18}});
  await configure();
  assert(vm.runInThisContext('Array.from(model.geom_bodyid).filter((body,i)=>body===0&&model.geom_type[i]===6).length===0'),'Depth exclusions must not create physical walls');
@@ -23,7 +24,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  await request({op:'input',drive:0,turn:0});r=await request({op:'advance',seconds:1});const braking={x:r.state.x,y:r.state.y};r=await request({op:'advance',seconds:1});assert(Math.hypot(r.state.x-braking.x,r.state.y-braking.y)<.025,'Releasing input brakes the chassis');
  await request({op:'input',drive:1,turn:0});await new Promise(resolve=>setTimeout(resolve,400));r=await request({op:'advance',seconds:.5});assert(Math.hypot(r.state.x-braking.x,r.state.y-braking.y)<.025,'An expired operator command cannot keep the vehicle moving');
  r=await request({op:'auto'});assert.equal(r.state.recovery.mode,'auto','Resume plans from the actual position');assert.equal(r.state.payload,cargo);
- r=await configure();assert.equal(r.state.recovery.attempts,0);assert.equal(r.state.recovery.events.length,0);
+ assert(vm.runInThisContext('commands.export().some(row=>row.manual&&row.kind==="backward"&&row.value>0)'), 'Log real manual reverse distance');
+ r=await configure();assert.equal(r.state.recovery.attempts,0);assert.equal(r.state.recovery.events.length,0);assert.deepEqual(r.commandLog,[],'Reset clears command history');
  await driving();global.lockChassis=true;for(let i=0;i<15;i++){r=await request({op:'advance',seconds:1});if(r.state.recovery.mode==='back')break;}assert.equal(r.state.recovery.mode,'back');global.lockChassis=false;
  for(let i=0;i<18;i++){r=await request({op:'advance',seconds:1});if(r.state.recovery.mode==='auto')break;}assert.equal(r.state.recovery.mode,'auto','A temporary obstruction allows recovery and automatic continuation');assert(!r.state.error,r.state.error);
  const recoveredAt={x:r.state.x,y:r.state.y};for(let i=0;i<30;i++){r=await request({op:'advance',seconds:1});if(Math.hypot(r.state.x-recoveredAt.x,r.state.y-recoveredAt.y)>.8)break;}assert.equal(r.state.recovery.mode,'auto');assert(Math.hypot(r.state.x-recoveredAt.x,r.state.y-recoveredAt.y)>.8,'Recovery continues making actual progress on the new route');

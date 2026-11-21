@@ -24,6 +24,27 @@
  document.querySelector('.note').insertAdjacentHTML('beforebegin','<button id="routeAnalysis" class="route-analysis">Анализ маршрута</button>');
  document.body.insertAdjacentHTML('beforeend','<dialog id="analysisDialog"><h2>Проходимость и память</h2><p id="analysisDetails"></p><p>Это оценка тестовой модели. Проверка учитывает габарит, уклоны, запас тяги с грузом, препятствия и прошлые неудачные проезды.</p><div class="dialog-actions"><button id="forgetRoutes">Забыть опыт</button><button id="closeAnalysis">Закрыть</button></div></dialog>');
  $('routeAnalysis').onclick=()=>{$('analysisDialog').showModal();};$('closeAnalysis').onclick=()=>$('analysisDialog').close();$('forgetRoutes').onclick=()=>{$('analysisDialog').close();active?.forget();};
+ document.querySelector('.telemetry').insertAdjacentHTML('beforeend','<section class="command-panel" aria-label="Команды самосвала"><div><strong>Команды</strong><button id="openCommandLog">Весь лог</button></div><ol id="recentCommands"><li>Команд пока нет</li></ol></section>');
+ document.body.insertAdjacentHTML('beforeend','<dialog id="commandDialog" aria-labelledby="commandTitle"><h2 id="commandTitle">Лог команд самосвала</h2><p>Автопилот: заданные расстояния и углы. Ручное управление: фактически выполненное движение. Время — с начала симуляции. Сохраняются последние 200 записей; они также входят в скачиваемый расчёт.</p><ol id="commandEntries"></ol><div class="dialog-actions"><button id="olderCommands">← Ранее</button><span id="commandPage"></span><button id="newerCommands">Позже →</button><button id="closeCommandLog">Закрыть</button></div></dialog>');
+ let commandPage=null,lastCommandView,lastCommandDialog;
+ const commandTime=t=>Math.floor(t/60).toString().padStart(2,'0')+':'+Math.floor(t%60).toString().padStart(2,'0');
+ function fillCommands(element,rows){
+  element.replaceChildren();
+  for(const row of rows){const li=document.createElement('li'),time=document.createElement('time'),text=document.createElement('span');time.textContent=commandTime(row.time);text.textContent=row.message;li.append(time,text);element.append(li);}
+  if(!rows.length){const li=document.createElement('li');li.textContent='Команд пока нет. Запустите симуляцию.';element.append(li);}
+ }
+ function commandUI(sim){
+  const rows=sim?.commandLog||[],key=sim?.session+':'+(sim?.commandRevision||0);
+  if(key!==lastCommandView){fillCommands($('recentCommands'),rows.slice(-2));lastCommandView=key;}
+  if(!$('commandDialog').open)return;
+  const size=innerHeight<650?4:6,pages=Math.max(1,Math.ceil(rows.length/size)),page=commandPage===null?pages-1:Math.min(commandPage,pages-1);
+  const dialogKey=key+':'+page+':'+size;if(dialogKey===lastCommandDialog)return;lastCommandDialog=dialogKey;
+  fillCommands($('commandEntries'),rows.slice(page*size,(page+1)*size));$('commandPage').textContent=(page+1)+' / '+pages;
+  $('olderCommands').disabled=page===0;$('newerCommands').disabled=page===pages-1;
+  $('olderCommands').onclick=()=>{commandPage=page-1;commandUI(active);};$('newerCommands').onclick=()=>{commandPage=page+1;commandUI(active);};
+ }
+ $('openCommandLog').onclick=()=>{commandPage=null;lastCommandDialog=null;$('commandDialog').showModal();commandUI(active);};$('closeCommandLog').onclick=()=>$('commandDialog').close();
+ window.addEventListener('resize',()=>commandUI(active));
  function analysisUI(sim){
   const a=sim.analysis,m=sim.learning;if(!a)return;
   $('routeAnalysis').textContent=(a.passable?(a.steepFallback?'Крутой участок':'Проезд допустим'):'Проезд не найден')+' · память: '+(m?.routes||0);
@@ -121,6 +142,7 @@
    try{const message=await rpc({op,session:this.session,...values});if(this.disposed)return;
     const v=await loadView();if(this.disposed)return;if(message.info){if(!message.info.reusedScene||!v.info)setupView(v,message.info);this.elevationMap=message.info.elevation;this.stations=message.info.stations;}
     if(message.memory){this.learnedMemory=message.memory;saveMemory(message.memory);}
+    if(message.commandLog){this.commandLog=message.commandLog;this.commandRevision=(this.commandRevision||0)+1;}
     const {soc,...state}=message.state;this.battery.soc=soc;const wasManual=this.recovery?.mode==='manual';Object.assign(this,state);this.initializing=false;if(this.station)this.station.export=()=>({stage:this.station.stage});updateView(v,message);
     if(this.recovery?.mode==='manual'&&!wasManual){this.previousSpeed=$('speed').value;$('speed').value='1';this.manualAt=performance.now();}else if(wasManual&&this.recovery?.mode!=='manual'){$('speed').value=this.previousSpeed||'1';}
     const n=v=>Number(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});$('height3d').textContent=n(this.groundHeightM)+' м';$('slope3d').textContent=n(this.pitchDeg)+'° / '+n(this.rollDeg)+'°';$('depthRange').textContent=n(this.heightMinM)+' — '+n(this.heightMaxM)+' м';
@@ -129,12 +151,12 @@
   }
   get active(){return this.recovery?.mode!=='request'&&super.active;}
   forget(){try{localStorage.removeItem(memoryPrefix+this.memoryKey);}catch{}if(this.stage==='error'||this.initializing){$('toast').hidden=true;this.initializing=true;this.command('configure',{...this.configureArgs,memory:null});}else this.command('forget');}
-  renderStatus(){recoveryUI(this);}
+  renderStatus(){recoveryUI(this);commandUI(this);}
   start(){this.command('start');}stop(){releaseInput();this.command('stop');}
   advance(seconds){if(this.busy||this.disposed||seconds<=0)return;if(this.recovery?.mode==='manual'){const now=performance.now();seconds=Math.min(.05,(now-(this.manualAt||now))/1000);this.manualAt=now;}this.busy=true;this.command('advance',{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
   paint(){if(view)view.dirty=true;}
-  dispose(){releaseInput();this.disposed=true;clearInterval(manualTimer);manualTimer=null;$('manualPanel').hidden=true;$('recoveryDialog').close();$('analysisDialog').close();}
-  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',learning:this.learnedMemory,analysis:this.analysis,recovery:this.recovery,elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
+  dispose(){releaseInput();this.disposed=true;clearInterval(manualTimer);manualTimer=null;$('manualPanel').hidden=true;$('recoveryDialog').close();$('analysisDialog').close();$('commandDialog').close();}
+  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',commandLog:this.commandLog||[],learning:this.learnedMemory,analysis:this.analysis,recovery:this.recovery,elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
  }
  $('showDepth').addEventListener('change',()=>{if(view){view.terrain.material.vertexColors=$('showDepth').checked;view.terrain.material.needsUpdate=true;view.dirty=true;}});
  window.MuJoCoTruck=BrowserTruck;

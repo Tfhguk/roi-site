@@ -1,8 +1,9 @@
 /* Physics and planning stay off the UI thread; only poses cross the boundary. */
-importScripts(...['polygon-geometry.js','setup-geometry.js','charging-model.js','truck-model.js','truck-navigation.js','truck-learning.js','mujoco-terrain.js','mujoco-planning.js','mujoco-scene.js'].map(file=>file+'?v='+(new URL(self.location.href).searchParams.get('v')||'dev')));
+importScripts(...['polygon-geometry.js','setup-geometry.js','charging-model.js','truck-model.js','truck-navigation.js','truck-learning.js','truck-command-log.js','mujoco-terrain.js','mujoco-planning.js','mujoco-scene.js'].map(file=>file+'?v='+(new URL(self.location.href).searchParams.get('v')||'dev')));
 let enginePromise,engine,model,data,reference,prepared,scene,session,ids,dynamic,stats,sceneKey,controls,truckMass,cargoId;
 let recovery,leg,watch,manualInput={drive:0,turn:0,until:0};
 let knowledge,lastMemoryRevision=-1,trace=[],traceRole;
+let commands,lastCommandRevision=-1;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),angle=v=>Math.atan2(Math.sin(v),Math.cos(v));
 const joint=name=>{const id=engine.mj_name2id(model,3,name);return {q:model.jnt_qposadr[id],d:model.jnt_dofadr[id]};};
 const actuator=name=>engine.mj_name2id(model,19,name);
@@ -25,6 +26,7 @@ async function configure(m){
  const selected=prepared.navigation.plan(m.route.points[0],m.route.points.at(-1));if(!selected)throw Error('Не найден проходимый путь с учётом сохранённого опыта. Можно очистить память маршрутов.');prepared.route.points=selected;
  reference=new TruckModel.Simulation({...prepared.route,continuous:true},prepared.config,prepared.navigation);
  recovery={mode:'auto',attempts:0,message:'',events:[]};leg=null;watch=null;manualInput={drive:0,turn:0,until:0};
+ commands=TruckCommandLog.create();lastCommandRevision=-1;
  const arrived=reference.arrived.bind(reference);
  reference.arrived=()=>{const final=reference.index===(reference.direction===1?reference.points.length-1:0);if(final)rememberPassage(true);if(leg&&reference.pathRole!==leg.role)leg=null;if(leg&&final){reference.points=leg.points;reference.direction=leg.direction;reference.index=leg.direction===1?leg.points.length-1:0;leg=null;}arrived();if(final){trace=[];traceRole=null;}};
  data.qpos[ids.yaw.q]=Math.atan2(reference.points[1].y-reference.y,reference.points[1].x-reference.x);
@@ -125,6 +127,7 @@ function auxiliaryTime(dt,p,target){
 }
 function step(){
  const dt=.004,c=reference.config,p=pose(),error=Math.hypot(reference.x-p.x,reference.y-p.y),yawError=angle(reference.psi-p.yaw);
+ recordCommands(p);
  if((recovery.mode==='auto'&&['driving','turning'].includes(reference.stage))||recovery.mode==='manual')tracePassage(p);
  // The supervisory controller waits for the physical chassis at corners/docks.
  const advancing=error<.03&&Math.abs(yawError)<.2||!['driving','turning','dock-align','waiting','station'].includes(reference.stage);
@@ -157,6 +160,9 @@ function step(){
  else if(recovery.mode!=='manual'&&(Math.abs(data.qpos[ids.roll.q])>.65||Math.abs(data.qpos[ids.pitch.q])>.65)){if(recovery.mode!=='request')requestManual('Слишком большой наклон шасси. Автоматический выезд остановлен.');}
  else if(recovery.mode==='auto'&&error>.25)recover();
 }
+function recordCommands(p=pose()){
+ commands.update(reference,p,recovery,performance.now()<manualInput.until?manualInput:{drive:0,turn:0});
+}
 function snapshot(){
  const r=reference,p=pose(),c=r.config;
  return {engine:'MuJoCo WASM',learning:knowledge.summary(),analysis:prepared.navigation.analysis,recovery:structuredClone(recovery),stage:r.stage,time:r.time,x:p.x,y:p.y,psi:p.yaw,v:Math.hypot(data.qvel[ids.x.d],data.qvel[ids.y.d]),distance:r.distance,soc:r.soc,payload:r.payload,theta:data.qpos[joint('tip').q],current:r.current,voltage:r.voltage,deliveries:r.deliveries,wL:r.wL,wR:r.wR,error:r.error,pathRole:r.pathRole,workGoal:r.workGoal,points:r.points,station:r.station?{stage:r.station.stage}:null,groundHeightM:scene.height(p.x,p.y),heightMinM:scene.minimum,heightMaxM:scene.maximum,pitchDeg:data.qpos[ids.pitch.q]*180/Math.PI,rollDeg:data.qpos[ids.roll.q]*180/Math.PI,history:r.history,stats:{...stats,positionError:Math.hypot(r.x-p.x,r.y-p.y),yawError:angle(r.psi-p.yaw),referenceX:r.x,referenceY:r.y,physicsTime:data.time}};
@@ -186,7 +192,9 @@ self.onmessage=messageEvent=>{tasks=tasks.then(async()=>{
    for(let i=0;i<steps&&reference.active;i++)step();
    engine.mj_forward(model,data);
   }
+  recordCommands();
+  const commandLog=commands.revision!==lastCommandRevision?commands.export():undefined;lastCommandRevision=commands.revision;
   const memory=knowledge.memory.revision!==lastMemoryRevision?knowledge.export():undefined;lastMemoryRevision=knowledge.memory.revision;
-  const transforms=poses();self.postMessage({id:m.id,session,state:snapshot(),memory,poses:transforms,info,dynamic,cargo:reference.payload>0},[transforms.buffer]);
+  const transforms=poses();self.postMessage({id:m.id,session,state:snapshot(),memory,commandLog,poses:transforms,info,dynamic,cargo:reference.payload>0},[transforms.buffer]);
  }catch(error){console.error(error);self.postMessage({id:m.id,session:m.session,error:error.message||String(error)});}
 }).catch(()=>{});};

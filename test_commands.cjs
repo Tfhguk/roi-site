@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict'),{create}=require('./truck-command-log.js');
+const r={time:0,stage:'turning',pathRole:'work',index:1,direction:1,target:()=>({x:3,y:4})},auto={mode:'auto'};
+let log=create(),p={x:0,y:0,yaw:0};
+log.update(r,p,auto);let rows=log.export();assert.equal(rows[0].kind,'left');assert(Math.abs(rows[0].value-53.1301)<.001);
+for(let i=0;i<250;i++)log.update(r,{...p,yaw:.1},auto);assert.equal(log.export().length,1,'Holding a turn produces one order, not one entry per physics tick');
+r.stage='driving';log.update(r,p,auto);assert.equal(log.export().at(-1).value,5,'Lengths are world metres');
+r.index=2;r.target=()=>({x:0,y:-2});r.stage='turning';log.update(r,p,auto);assert.equal(log.export().at(-1).kind,'right');assert.equal(log.export().at(-1).value,90);
+r.target=()=>({x:Math.cos(-170*Math.PI/180),y:Math.sin(-170*Math.PI/180)});r.index=3;log.update(r,{...p,yaw:170*Math.PI/180},auto);assert.equal(log.export().at(-1).kind,'left');assert(Math.abs(log.export().at(-1).value-20)<1e-10,'Turn through the shortest wrapped angle');
+log.update(r,p,{mode:'back',target:{x:-.2,y:0}});assert.equal(log.export().at(-1).kind,'backward');assert.equal(log.export().at(-1).value,.2);
+log=create();const manual={mode:'manual'};
+log.update(r,p,manual,{drive:-1,turn:0});log.update(r,{...p,x:-.1},manual,{drive:-1,turn:0});log.update(r,{...p,x:-.2},manual,{drive:0,turn:0});rows=log.export();assert.equal(rows.length,2);assert.equal(rows[0].manual,true);assert.equal(rows[0].value,.2);assert.match(rows[0].message,/0,20 м/);assert.equal(rows[1].kind,'stop');
+log.update(r,{...p,yaw:170*Math.PI/180},manual,{drive:0,turn:1});log.update(r,{...p,yaw:-170*Math.PI/180},manual,{drive:0,turn:1});assert(Math.abs(log.export().at(-1).value-20)<1e-10);
+log=create();r.stage='driving';for(let i=0;i<240;i++){r.index=i;r.time=i;log.update(r,p,auto);}assert.equal(log.export().length,200);assert.equal(log.export()[0].id,41);const snapshot=log.export();snapshot[0].message='changed';assert.notEqual(log.export()[0].message,'changed');
+assert.equal(create().export().length,0,'A new simulation starts with a fresh log');
+console.log('PASS commands: metric orders, left/right, wrapped angles, deduplication, reverse recovery, measured manual movement and bounded history');
