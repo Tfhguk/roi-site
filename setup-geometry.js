@@ -207,7 +207,7 @@
   function plannerLimits(options={}) {
     const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2,boundaryClearance:options.boundaryClearance??0,markerClearance:options.markerClearance??0};
     if(!Object.values(limits).every(v=>Number.isFinite(v)&&v>=0&&v<=1000))throw Error("Глубина и перепад для автопостроения должны быть от 0 до 1000.");
-    return {...limits,objective:options.objective==="shortest"?"shortest":"terrain",traversable:options.traversable,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
+    return {...limits,objective:["shortest","efficient"].includes(options.objective)?options.objective:"terrain",edgeCost:typeof options.edgeCost==="function"?options.edgeCost:null,traversable:options.traversable,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
   }
   function makeGraph(polygon,depth,limits) {
     limits={...limits,safety:safetyContext(polygon,limits.transportAreas,limits.markers)};
@@ -231,13 +231,13 @@
       if(edges.has(i))return edges.get(i);
       const x=i%depth.cols,y=Math.floor(i/depth.cols),result=[...(links.get(i)||[])];
       if(i>=gridCount){edges.set(i,result);return result;}
-      for(const [dx,dy]of (limits.objective==="shortest"?[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]:[[-1,0],[1,0],[0,-1],[0,1]])){
+      for(const [dx,dy]of (limits.objective!=="terrain"?[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]]:[[-1,0],[1,0],[0,-1],[0,1]])){
         const nx=x+dx,ny=y+dy,j=ny*depth.cols+nx;
         if(nx<0||nx>=depth.cols||ny<0||ny>=depth.rows||!allowed[j])continue;
         if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||hitsObstacles([nodes[i],nodes[j]],limits.obstacles)||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
         if(limits.traversable&&!limits.traversable(nodes[i],nodes[j]))continue;
         const delta=Math.abs(depth.cells[i]-depth.cells[j]);
-        const m=dx&&dy?metric(nodes[i],nodes[j]):{peak:delta,variation:delta,length:dist(nodes[i],nodes[j])};
+        const m=dx&&dy||limits.objective==="efficient"?metric(nodes[i],nodes[j]):{peak:delta,variation:delta,length:dist(nodes[i],nodes[j])};
         if(m)result.push({i:j,...m});
       }
       edges.set(i,result);return result;
@@ -245,7 +245,7 @@
     return {nodes,allowed,neighbours,metric,gridCount,safety:limits.safety};
   }
   function segmentMetrics(a,b,polygon,depth,limits){
-    if(dist(a,b)<=.1)return {peak:0,variation:0,length:0};
+    if(dist(a,b)<=.1)return {peak:0,variation:0,length:0,...(limits.objective==="efficient"?{cost:0}:{})};
     if(routeErrors({points:[a,b],...limits},polygon,depth,limits.transportAreas,limits.safety).length)return null;
     if(limits.traversable&&!limits.traversable(a,b))return null;
     const ts=segmentCuts(a,b,polygon,depth);let previous,previousValue,peak=0,variation=0;
@@ -256,7 +256,9 @@
       if(previousValue!==undefined)variation+=Math.abs(value-previousValue);
       previous={low,high};previousValue=value;
     }
-    return {peak,variation,length:dist(a,b)};
+    const result={peak,variation,length:dist(a,b)};
+    if(limits.objective==="efficient"){const cost=limits.edgeCost?limits.edgeCost(a,b,result):result.length;if(!Number.isFinite(cost)||cost<result.length-EPS)throw Error("Стоимость проезда должна быть конечной и не меньше длины участка.");result.cost=Math.max(result.length,cost);}
+    return result;
   }
   function pathMetrics(points,polygon,depth,options={}){
     const limits=plannerLimits(options),result={peak:0,variation:0,length:0};
@@ -279,6 +281,32 @@
     while(index<points.length-1){let next=points.length-1;while(next>index+1&&!graph.metric(points[index],points[next]))next--;result.push(points[next]);index=next;}
     return result.filter((p,i)=>!i||dist(p,result[i-1])>.1).map(p=>({...p}));
   }
+  // Cost is distance plus a finite terrain penalty. A millimetre less climb
+  // must not beat arbitrarily many extra metres. The Euclidean heuristic is
+  // admissible because every edge costs at least its length.
+  function efficientPath(start,end,graph,starts,ends,direct){
+    const {nodes}=graph,costs=new Float64Array(nodes.length).fill(Infinity),previous=new Int32Array(nodes.length).fill(-1),heap=new MinHeap((a,b)=>a.f-b.f),closed=new Uint8Array(nodes.length);
+    let best=direct?.cost??Infinity,goal=-1;
+    for(const edge of starts)if(edge.cost<costs[edge.i]){costs[edge.i]=edge.cost;heap.push({i:edge.i,c:edge.cost,f:edge.cost+dist(nodes[edge.i],end)});}
+    while(heap.length){const item=heap.pop(),i=item.i;if(item.f>=best-EPS)break;if(closed[i]||item.c>costs[i]+EPS)continue;closed[i]=1;
+      const finish=ends.get(i);if(finish&&item.c+finish.cost<best-EPS){best=item.c+finish.cost;goal=i;}
+      for(const edge of graph.neighbours(i)){const cost=item.c+edge.cost;if(closed[edge.i]||cost>=costs[edge.i]-EPS)continue;costs[edge.i]=cost;previous[edge.i]=i;heap.push({i:edge.i,c:cost,f:cost+dist(nodes[edge.i],end)});}
+    }
+    if(goal<0)return direct?[{...start},{...end}]:null;
+    const raw=[];for(let i=goal;i>=0;i=previous[i])raw.push(nodes[i]);raw.reverse();raw.unshift(start);raw.push(end);
+    return shortcut(raw,graph.metric);
+  }
+  function shortcut(points,metric){
+    const unique=points.filter((p,i)=>!i||dist(p,points[i-1])>.1);if(unique.length<2)return null;
+    const prefix=[0];for(let i=1;i<unique.length;i++){const m=metric(unique[i-1],unique[i]);if(!m)return null;prefix.push(prefix.at(-1)+m.cost);}
+    const result=[unique[0]];let index=0;
+    while(index<unique.length-1){let next=unique.length-1;while(next>index+1){const m=metric(unique[index],unique[next]);if(m&&m.cost<=prefix[next]-prefix[index]+EPS)break;next--;}result.push(unique[next]);index=next;}
+    return result.map(p=>({...p}));
+  }
+  function simplifyPath(points,polygon,depth,options={}){
+    const limits=plannerLimits({...options,objective:"efficient"});limits.safety=safetyContext(polygon,limits.transportAreas,limits.markers);
+    const result=shortcut(points,(a,b)=>segmentMetrics(a,b,polygon,depth,limits));return result&&!routeErrors({points:result,...limits},polygon,depth,limits.transportAreas,limits.safety).length?result:null;
+  }
   // Working routes first minimize the steepest transition (bottleneck search). At that bound,
   // minimize cumulative elevation changes, then distance. Smoothing must preserve
   // both terrain objectives; a merely legal straight line is not preferred.
@@ -292,6 +320,7 @@
     }
     const starts=connectors(start),ends=new Map(connectors(end).map(item=>[item.i,item])),direct=graph.metric(start,end);
     if(limits.objective==="shortest")return direct?[{...start},{...end}]:shortestPath(start,end,graph,starts,ends);
+    if(limits.objective==="efficient")return efficientPath(start,end,graph,starts,ends,direct);
     let ceiling=direct?.peak??Infinity;
     const peaks=new Float64Array(nodes.length).fill(Infinity),bottlenecks=new MinHeap((a,b)=>a.peak-b.peak);
     for(const item of starts){peaks[item.i]=item.peak;bottlenecks.push({i:item.i,peak:item.peak});}
@@ -379,5 +408,5 @@
     }
     return {routes,unreachable};
   }
-  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,createPathPlanner,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,hitsObstacles,equipmentRole,vehicleRouteErrors});
+  global.SetupGeometry=Object.freeze({W,H,inside,nearSegment,validPoints,inPolygon,inAreas,zoneErrors,emptyDepth,validateDepth,routeErrors,generateDepth,findPath,createPathPlanner,simplifyPath,planRoutes,pathMetrics,routingMarkers,safetyContext,clearanceErrors,hitsObstacles,equipmentRole,vehicleRouteErrors});
 })(globalThis);
