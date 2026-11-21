@@ -84,7 +84,7 @@
     }
     function chargeRoute(start,soc){
       if(!stations.length)throw Error(unavailable.length?"В зоне зарядки не помещается тестовая станция с подъездом: "+unavailable.join(", "):"Добавьте зону зарядки внутри транспортной зоны.");
-      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock,"shortest");return points?[{points,station,analysis:lastAnalysis,...estimate(points)}]:[];}).sort((a,b)=>a.length-b.length||a.requiredSoc-b.requiredSoc);
+      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock,"shortest");return points?[{points,station,analysis:lastAnalysis,...estimate(points)}]:[];}).sort((a,b)=>Number(a.analysis.steepFallback)-Number(b.analysis.steepFallback)||a.length-b.length||a.requiredSoc-b.requiredSoc);
       if(!candidates.length)throw Error("Из текущего положения нет допустимого пути к зарядной станции по карте глубины.");
       const reachable=candidates.find(r=>r.requiredSoc+.055<soc);
       if(!reachable)throw Error("Заряда недостаточно для доезда до доступной станции с резервом. Увеличьте порог выезда на зарядку.");
@@ -102,15 +102,15 @@
         // Prefer a saved hauling endpoint, so work can resume on that trajectory.
         for(const end of [...anchors,centre]){const points=plan(start,end);if(points){candidates.push({points,zone,analysis:lastAnalysis,...estimate(points)});break;}}
       }
-      candidates.sort((a,b)=>a.requiredSoc-b.requiredSoc);
+      candidates.sort((a,b)=>Number(a.analysis.steepFallback)-Number(b.analysis.steepFallback)||a.requiredSoc-b.requiredSoc);
       if(!candidates.length)throw Error("Не найден путь по карте глубины к "+(kind==="warehouse"?"складу":"зоне добычи")+" после зарядки.");
       lastAnalysis=candidates[0].analysis;
       return candidates[0];
     }
     function cycleRoute(start,kind){
       for(const r of haulRoutes){
-        if(endpointKind(r,0)===kind&&distance(start,r.points[0])<.1&&!validate(r.points).length)return {...structuredClone(r),fromKind:kind,toKind:kind==="mining"?"warehouse":"mining"};
-        if(r.bidirectional!==false&&endpointKind(r,1)===kind&&distance(start,r.points.at(-1))<.1&&!validate(r.points).length)return {...structuredClone(r),points:structuredClone(r.points).reverse(),fromKind:kind,toKind:kind==="mining"?"warehouse":"mining"};
+        if(endpointKind(r,0)===kind&&distance(start,r.points[0])<.1&&!validate(r.points).length){lastAnalysis=analyze(r.points);return {...structuredClone(r),fromKind:kind,toKind:kind==="mining"?"warehouse":"mining"};}
+        if(r.bidirectional!==false&&endpointKind(r,1)===kind&&distance(start,r.points.at(-1))<.1&&!validate(r.points).length){lastAnalysis=analyze(r.points);return {...structuredClone(r),points:structuredClone(r.points).reverse(),fromKind:kind,toKind:kind==="mining"?"warehouse":"mining"};}
       }
       const destination=workRoute(start,kind==="mining"?"warehouse":"mining");
       return {id:"dynamic-work",name:"Рабочий путь после зарядки",equipmentId:route.equipmentId,points:destination.points,fromKind:kind,toKind:destination.zone.kind,bidirectional:true};
