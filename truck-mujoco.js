@@ -4,8 +4,10 @@
   if(new URLSearchParams(location.search).get("mujoco")!=="1")return;
   const $=id=>document.getElementById(id);
   let queue=Promise.resolve();
-  const image=document.createElement("img");image.alt="3D сцена MuJoCo";
-  Object.assign(image.style,{position:"absolute",inset:"0",width:"100%",height:"100%",objectFit:"contain",touchAction:"none"});
+  const image=document.createElement("img");image.alt="3D сцена MuJoCo";image.draggable=false;
+  Object.assign(image.style,{position:"absolute",inset:"0",width:"100%",height:"100%",objectFit:"contain",touchAction:"none",userSelect:"none",webkitUserSelect:"none",overscrollBehavior:"contain",cursor:"grab"});
+  image.style.setProperty("-webkit-user-drag","none");
+  for(const event of ["contextmenu","dragstart","selectstart"])image.addEventListener(event,e=>e.preventDefault());
   $("scene").append(image);$("depthReadout").hidden=true;
   const camera=document.createElement("div");Object.assign(camera.style,{position:"absolute",top:"8px",right:"8px",display:"flex",gap:"6px",zIndex:2});
   camera.innerHTML='<button type="button" id="follow3d">За самосвалом</button><button type="button" id="overview3d">Общий вид</button>';
@@ -19,10 +21,11 @@
   function cameraCommand(values){return current?current.command("camera",values):Promise.resolve();}
   $("follow3d").onclick=()=>cameraCommand({follow:true,zoom:1});
   $("overview3d").onclick=()=>cameraCommand({follow:false,zoom:1});
-  image.onpointerdown=e=>{image.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY};};
-  image.onpointerup=image.onpointercancel=()=>{drag=null;};
+  image.onpointerdown=e=>{if(e.button>2)return;e.preventDefault();image.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY};image.style.cursor="grabbing";};
+  image.onpointerup=image.onpointercancel=e=>{e.preventDefault();drag=null;image.style.cursor="grab";if(image.hasPointerCapture(e.pointerId))image.releasePointerCapture(e.pointerId);};
+  image.onlostpointercapture=()=>{drag=null;image.style.cursor="grab";};
   image.onpointermove=e=>{if(!drag||!current)return;current.azimuth+=(e.clientX-drag.x)*.5;current.elevation=Math.max(-89,Math.min(-10,current.elevation-(e.clientY-drag.y)*.3));drag={x:e.clientX,y:e.clientY};if(!current.cameraBusy){current.cameraBusy=true;cameraCommand({azimuth:current.azimuth,elevation:current.elevation}).finally(()=>{current.cameraBusy=false;});}};
-  image.onwheel=e=>{e.preventDefault();if(current){current.zoom=Math.max(.2,Math.min(4,current.zoom*Math.exp(e.deltaY*.001)));cameraCommand({zoom:current.zoom});}};
+  image.addEventListener("wheel",e=>{e.preventDefault();if(current){current.zoom=Math.max(.2,Math.min(4,current.zoom*Math.exp(e.deltaY*.001)));cameraCommand({zoom:current.zoom});}},{passive:false});
   class Remote extends TruckModel.Simulation{
     constructor(route,config,source,onUpdate,onError){
       super(route,config,null);this.isMuJoCo=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;this.azimuth=90;this.elevation=-55;this.zoom=1;current=this;
