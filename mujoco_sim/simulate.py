@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Planner:
-    def __init__(self, workspace=None, config=None):
+    def __init__(self, workspace=None, config=None, source=None, route=None):
         node = shutil.which("node")
         if not node:
             raise RuntimeError("Install Node.js to use the existing polygon/depth planner")
@@ -28,7 +28,7 @@ class Planner:
             cwd=ROOT,
         )
         try:
-            self.scene = self.ask(op="init", workspace=str(Path(workspace).resolve()) if workspace else None, config=config or {})
+            self.scene = self.ask(op="init", workspace=str(Path(workspace).resolve()) if workspace else None, config=config or {}, source=source, route=route)
         except Exception:
             self.close()
             raise
@@ -89,7 +89,10 @@ def scene_xml(scene):
         for a, b in zip(pts, pts[1:] + pts[:1]):
             line(a, b, colors.get(zone["kind"], "1 1 1 1"))
     p = scene["route"]["points"][0]
-    truck = add(world, "body", name="truck", pos="0 0 .044")
+    # Slide joints are offsets from a body placed at the route spawn. MuJoCo's
+    # qpos0 is also a joint reference: changing it to world coordinates shifts
+    # the reference frame and must not be used to store a global spawn.
+    truck = add(world, "body", name="truck", pos=f"{p['x']*scale} {p['y']*scale} .044")
     add(truck, "joint", name="x", type="slide", axis="1 0 0", damping="0")
     add(truck, "joint", name="y", type="slide", axis="0 1 0", damping="0")
     add(truck, "joint", name="yaw", type="hinge", axis="0 0 1", damping=".002")
@@ -141,6 +144,10 @@ class Simulation:
         self.data = mujoco.MjData(self.model)
         self.q = {name: self.model.joint(name).qposadr[0] for name in ["x", "y", "yaw"]}
         self.d = {name: self.model.joint(name).dofadr[0] for name in self.q}
+        self.reset()
+
+    def reset(self, autostart=True):
+        mujoco.mj_resetData(self.model, self.data)
         self.soc = self.config["initialSoc"]
         self.payload = 0.
         self.deliveries = 0
@@ -152,12 +159,12 @@ class Simulation:
         self.voltage = 0.
         self.error = ""
         self.path = []
-        self.set_path(self.scene["route"]["points"], "mining")
-        self.data.qpos[self.q["x"]], self.data.qpos[self.q["y"]] = self.path[0]
+        self.set_path(self.scene["route"]["points"], "warehouse" if self.scene["route"].get("fromKind", "mining") == "mining" else "mining")
+        self.data.qpos[self.q["x"]], self.data.qpos[self.q["y"]] = 0, 0
         self.data.qpos[self.q["yaw"]] = math.atan2(*(self.path[1]-self.path[0])[::-1])
         for i in range(len(self.scene["stations"])):
             self.data.qpos[self.model.joint(f"arm_z_{i}").qposadr[0]] = .08
-        self.transition("loading")
+        self.transition("loading" if autostart else "idle")
         mujoco.mj_forward(self.model, self.data)
         self.max_error = 0.
         self.stalled = 0.
@@ -168,7 +175,12 @@ class Simulation:
 
     @property
     def xy(self):
-        return np.array([self.data.qpos[self.q["x"]], self.data.qpos[self.q["y"]]])
+        return self.path_spawn + np.array([self.data.qpos[self.q["x"]], self.data.qpos[self.q["y"]]])
+
+    @property
+    def path_spawn(self):
+        p = self.scene["route"]["points"][0]
+        return np.array([p["x"], p["y"]])*self.config["metresPerUnit"]
 
     def map_position(self):
         p = self.xy / self.config["metresPerUnit"]
@@ -202,6 +214,9 @@ class Simulation:
         velocity = np.array([vx, vy])
         speed = float(velocity @ forward)
         target_v = target_w = tip = 0.
+        if self.stage in {"idle", "stopped", "error"}:
+            self.data.qfrc_applied[:] = 0
+            return
         try:
             if self.stage == "driving":
                 delta = self.path[self.index]-self.xy
@@ -221,6 +236,10 @@ class Simulation:
             elif self.stage == "charge-stop":
                 if np.linalg.norm(velocity) < .003 and abs(omega) < .01:
                     self.request("charge")
+            elif self.stage == "stopping":
+                extended = any(self.data.qpos[self.model.joint(f"arm_x_{i}").qposadr[0]] > .012 for i in range(len(self.scene["stations"])))
+                if np.linalg.norm(velocity) < .003 and abs(omega) < .01 and not extended:
+                    self.transition("stopped")
             elif self.stage == "loading":
                 self.payload = c["payloadKg"]*min(1, elapsed/4)
                 if elapsed >= 4:
@@ -336,13 +355,15 @@ def main():
         if args.save_model:
             args.save_model.parent.mkdir(parents=True, exist_ok=True)
             args.save_model.write_text(scene_xml(planner.scene), encoding="utf-8")
-        controls = {"paused": False, "follow": True, "overview": False}
+        controls = {"paused": False, "follow": True, "overview": False, "reset": False}
         def key_callback(key):
             if key == 32:
                 controls["paused"] = not controls["paused"]
             if key == ord("F"):
                 controls["follow"] = not controls["follow"]
                 controls["overview"] = not controls["follow"]
+            if key == ord("R"):
+                controls["reset"] = True
         if args.headless:
             context = nullcontext(None)
         else:
@@ -352,8 +373,12 @@ def main():
             if viewer:
                 viewer.cam.lookat[:] = [5, 3.5, 0]
                 viewer.cam.distance, viewer.cam.azimuth, viewer.cam.elevation = 10, 90, -55
-            start, last_status = time.monotonic(), -2.
+            start, last_status, last_physics_time = time.monotonic(), -2., 0.
             while (not viewer or viewer.is_running()) and (not args.seconds or sim.data.time < args.seconds):
+                if controls["reset"] or sim.data.time < last_physics_time-1e-9:
+                    sim.reset()
+                    controls["reset"], controls["paused"] = False, False
+                    start, last_status = time.monotonic(), -2.
                 if viewer and controls["paused"]:
                     viewer.sync()
                     time.sleep(.02)
@@ -363,6 +388,7 @@ def main():
                     sim.step()
                     if sim.stage == "error":
                         raise RuntimeError(sim.error)
+                last_physics_time = sim.data.time
                 if sim.data.time-last_status >= 2:
                     print(f"{sim.data.time:8.1f}s {sim.status()}", flush=True)
                     last_status = sim.data.time

@@ -10,7 +10,11 @@ const box=(id,kind,x,y,w,h)=>({id,name:id,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:
 function initialize(message){
   config={...defaults,...message.config};
   config=new Truck.Simulation({points:[{x:0,y:0},{x:1,y:1}]},config).config;
-  if(message.workspace){
+  if(message.source){
+    source=message.source;route=message.route;
+    G.validateDepth(source.depth);
+    if(!G.inside(route?.points?.[0],source.boundary))throw Error('Route spawn must be inside polygon');
+  }else if(message.workspace){
     const w=JSON.parse(fs.readFileSync(message.workspace,'utf8'));
     if(w.version!==1||!w.polygon?.geometry?.points)throw Error('Expected roi-workspace.json exported from workspace settings');
     source={boundary:w.polygon.geometry.points,zones:w.zones,depth:G.validateDepth(w.depth),routes:w.routes||[]};

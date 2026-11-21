@@ -1,6 +1,7 @@
 """Integration checks against the real MuJoCo solver and shared route planner."""
 from simulate import Planner, Simulation
 import numpy as np
+import mujoco
 
 
 def advance_until(sim, predicate, seconds):
@@ -17,6 +18,15 @@ def main():
     p = Planner(config={"initialSoc": .65})
     try:
         s = Simulation(p)
+        spawn=s.xy.copy()
+        s.data.qpos[s.q["x"]]+=1
+        mujoco.mj_resetData(s.model,s.data)
+        mujoco.mj_forward(s.model,s.data)
+        assert np.allclose(s.xy,spawn), "Native MuJoCo reset preserves route spawn"
+        assert np.allclose(s.data.xpos[s.model.body("truck").id][:2],spawn), "Actual chassis body remains at spawn"
+        s.reset(autostart=False)
+        assert s.stage=="idle" and s.data.time==0 and np.allclose(s.xy,spawn)
+        s.reset()
         advance_until(s, lambda: s.deliveries >= 2, 550)
         assert s.stage == "driving", "Work continues after unloading"
         loaded = next(h for h in s.history if h["stage"] == "loading")

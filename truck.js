@@ -25,6 +25,7 @@
     return G.routeErrors({maxDepth:5,maxSlope:2,boundaryClearance:5,markerClearance:40,...r},source.boundary,source.depth,areas,G.safetyContext(source.boundary,areas,G.routingMarkers(source.boundary,source.zones)));
   }
   function reset(){
+    sim?.dispose?.();
     paused=false;last=0;notice="";$("toast").hidden=true;sim=null;navigation=null;hoveredCell=null;
     try{
       const r=route();if(!truck())throw Error("На этом полигоне нет ваших самосвалов. Добавьте самосвал в гараже.");
@@ -34,7 +35,7 @@
       const work={...r,fromKind:from?.kind,toKind:to?.kind,continuous:true};
       navigation=TruckNavigation.create(source,config,work);
       const occupied=navigation.validate(r.points);if(occupied.length)throw Error(occupied.join("\n"));
-      sim=new M.Simulation(work,config,navigation);
+      sim=window.MuJoCoTruck?new MuJoCoTruck(work,config,clone(source),render,toast):new M.Simulation(work,config,navigation);
     }catch(error){notice=error.message;}
     render();if(notice&&route())toast(notice);
   }
@@ -89,6 +90,7 @@
   };
   function canvas(id){const el=$(id),r=el.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);if(el.width!==Math.round(r.width*d)||el.height!==Math.round(r.height*d)){el.width=Math.max(1,Math.round(r.width*d));el.height=Math.max(1,Math.round(r.height*d));}const ctx=el.getContext("2d");ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,r.width,r.height);return {ctx,w:r.width,h:r.height};}
   function draw(){
+    if(sim?.isMuJoCo){sim.paint();return;}
     const {ctx,w,h}=canvas("map");if(!source||w<1||h<1)return;
     const points=[...source.boundary,...source.zones.flatMap(z=>z.points)],minX=Math.min(...points.map(p=>p.x)),minY=Math.min(...points.map(p=>p.y));
     const width=Math.max(1,Math.max(...points.map(p=>p.x))-minX),height=Math.max(1,Math.max(...points.map(p=>p.y))-minY),scale=Math.min((w-30)/width,(h-30)/height),ox=(w-width*scale)/2-minX*scale,oy=(h-height*scale)/2-minY*scale;
@@ -144,6 +146,7 @@
   document.addEventListener("visibilitychange",()=>{if(document.hidden)pause();});window.addEventListener("resize",render);
   $("showDepth").onchange=draw;$("showDepthValues").onchange=draw;
   function inspectDepth(event){
+    if(sim?.isMuJoCo)return;
     if(!source||!mapTransform)return;const r=$("map").getBoundingClientRect(),x=(event.clientX-r.left-mapTransform.ox)/mapTransform.scale,y=(event.clientY-r.top-mapTransform.oy)/mapTransform.scale;
     if(x<0||x>=1000||y<0||y>=700||!G.inside({x,y},source.boundary)){hoveredCell=null;draw();return;}
     const col=Math.floor(x/1000*source.depth.cols),row=Math.floor(y/700*source.depth.rows);hoveredCell={col,row,value:source.depth.cells[row*source.depth.cols+col]};draw();

@@ -8,7 +8,9 @@ if not exist "%SIM_PY%" (
   "%SIM_PY%" -m pip install -r mujoco_sim\requirements.txt
   if errorlevel 1 goto failed
 )
-"%SIM_PY%" mujoco_sim\simulate.py %*
+call npm.cmd run build
+if errorlevel 1 goto failed
+"%SIM_PY%" mujoco_sim\web_server.py %*
 if errorlevel 1 goto failed
 exit /b 0
 :failed

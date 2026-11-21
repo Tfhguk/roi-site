@@ -12,7 +12,7 @@ const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.htm
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
   "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js",
   "charging.html", "charging.css", "charging-model.js", "charging.js",
-  "truck.html", "truck.css", "truck-model.js", "truck-navigation.js", "truck.js"];
+  "truck.html", "truck.css", "truck-model.js", "truck-navigation.js", "truck-mujoco.js", "truck.js"];
 const VENDOR_FILES = [
   ["node_modules/jspdf/dist/jspdf.umd.min.js", "assets/vendor/jspdf.umd.min.js"],
   ["node_modules/js-aruco2/src/cv.js", "assets/vendor/aruco-cv.js"],
