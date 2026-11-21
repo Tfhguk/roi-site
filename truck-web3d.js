@@ -20,6 +20,33 @@
  const tools=document.createElement('div');Object.assign(tools.style,{position:'absolute',right:'8px',top:'8px',display:'flex',gap:'6px',zIndex:2});tools.innerHTML='<button id="follow3d">За самосвалом</button><button id="overview3d">Общий вид</button>';host.append(tools);
  $('follow3d').onclick=()=>{if(view){view.follow=true;view.zoom=1;view.dirty=true;}};
  $('overview3d').onclick=()=>{if(view){view.follow=false;view.zoom=1;view.dirty=true;}};
+ tools.insertAdjacentHTML('beforeend','<button id="manual3d">Ручное управление</button>');
+ host.insertAdjacentHTML('beforeend','<div id="manualPanel" hidden><span>Удерживайте стрелки / WASD · ×1</span><div><button data-drive="1" aria-label="Вперёд">↑</button><button data-turn="1" aria-label="Налево">←</button><button id="manualBrake">Стоп</button><button data-turn="-1" aria-label="Направо">→</button><button data-drive="-1" aria-label="Назад">↓</button></div><button id="resumeAuto">Вернуться к маршруту</button></div>');
+ document.body.insertAdjacentHTML('beforeend','<dialog id="recoveryDialog"><h2>Самосвал застрял</h2><p id="recoveryMessage"></p><div class="dialog-actions"><button id="takeManual">Взять управление</button><button id="cancelRecovery">Остановить</button></div></dialog>');
+ let input={drive:0,turn:0},keys=new Set(),manualTimer,askedSession;
+ function sendInput(){if(active?.recovery?.mode==='manual')active.command('input',input);}
+ function releaseInput(){keys.clear();input={drive:0,turn:0};sendInput();}
+ function takeManual(){releaseInput();$('recoveryDialog').close();active?.command('manual');}
+ $('manual3d').onclick=takeManual;$('takeManual').onclick=takeManual;
+ $('cancelRecovery').onclick=()=>{$('recoveryDialog').close();active?.stop();};
+ $('recoveryDialog').addEventListener('cancel',e=>{e.preventDefault();$('cancelRecovery').click();});
+ $('resumeAuto').onclick=()=>{releaseInput();active?.command('auto');};$('manualBrake').onclick=releaseInput;
+ for(const button of $('manualPanel').querySelectorAll('[data-drive],[data-turn]')){
+  button.onpointerdown=e=>{e.preventDefault();button.setPointerCapture(e.pointerId);input={drive:Number(button.dataset.drive||0),turn:Number(button.dataset.turn||0)};sendInput();};
+  button.onpointerup=button.onpointercancel=button.onlostpointercapture=releaseInput;
+ }
+ function keyboard(e,down){if(active?.recovery?.mode!=='manual'||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;const code=e.code;if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyS','KeyA','KeyD','Space'].includes(code))return;e.preventDefault();if(code==='Space'){releaseInput();return;}down?keys.add(code):keys.delete(code);input={drive:Number(keys.has('ArrowUp')||keys.has('KeyW'))-Number(keys.has('ArrowDown')||keys.has('KeyS')),turn:Number(keys.has('ArrowLeft')||keys.has('KeyA'))-Number(keys.has('ArrowRight')||keys.has('KeyD'))};sendInput();}
+ window.addEventListener('keydown',e=>keyboard(e,true));window.addEventListener('keyup',e=>keyboard(e,false));window.addEventListener('blur',releaseInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseInput();});
+ function recoveryUI(sim){
+  const r=sim.recovery,manual=r?.mode==='manual',request=r?.mode==='request';$('manualPanel').hidden=!manual;$('manual3d').disabled=sim.initializing||sim.theta>.02||!manual&&!request&&!['driving','turning','dock-align'].includes(sim.stage)||!!sim.station&&!['complete','stopped','error'].includes(sim.station.stage)||!sim.active&&!request;
+  $('speed').disabled=manual;
+  if(manual&&!manualTimer)manualTimer=setInterval(sendInput,100);else if(!manual&&manualTimer){clearInterval(manualTimer);manualTimer=null;input={drive:0,turn:0};keys.clear();}
+  if(r?.mode==='back'){$('stage').textContent='Попытка выезда '+r.attempts+'/2';$('instruction').textContent=r.message;}
+  if(manual||request){$('stage').textContent=manual?'Ручное управление':'Требуется ручное управление';$('instruction').textContent=r.message;}
+  if(request&&askedSession!==sim.session+JSON.stringify(r.events)){
+   askedSession=sim.session+JSON.stringify(r.events);$('recoveryMessage').textContent=r.message;if(!$('recoveryDialog').open)$('recoveryDialog').showModal();
+  }
+ }
  function loadView(){return threePromise??=import('./assets/vendor/three.module.js').then(T=>{
   const renderer=new T.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));renderer.setClearColor(0x101e31);renderer.outputColorSpace=T.SRGBColorSpace;
   const canvas=renderer.domElement;canvas.id='mujoco3d';canvas.setAttribute('aria-label','Интерактивная 3D сцена MuJoCo');Object.assign(canvas.style,{position:'absolute',inset:0,width:'100%',height:'100%',touchAction:'none',userSelect:'none',cursor:'grab'});host.append(canvas);
@@ -75,16 +102,19 @@
   async command(op,values={}){
    try{const message=await rpc({op,session:this.session,...values});if(this.disposed)return;
     const v=await loadView();if(this.disposed)return;if(message.info){if(!message.info.reusedScene||!v.info)setupView(v,message.info);this.elevationMap=message.info.elevation;this.stations=message.info.stations;}
-    const {soc,...state}=message.state;this.battery.soc=soc;Object.assign(this,state);this.initializing=false;if(this.station)this.station.export=()=>({stage:this.station.stage});updateView(v,message);
+    const {soc,...state}=message.state;this.battery.soc=soc;const wasManual=this.recovery?.mode==='manual';Object.assign(this,state);this.initializing=false;if(this.station)this.station.export=()=>({stage:this.station.stage});updateView(v,message);
+    if(this.recovery?.mode==='manual'&&!wasManual){this.previousSpeed=$('speed').value;$('speed').value='1';this.manualAt=performance.now();}else if(wasManual&&this.recovery?.mode!=='manual'){$('speed').value=this.previousSpeed||'1';}
     const n=v=>Number(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});$('height3d').textContent=n(this.groundHeightM)+' м';$('slope3d').textContent=n(this.pitchDeg)+'° / '+n(this.rollDeg)+'°';$('depthRange').textContent=n(this.heightMinM)+' — '+n(this.heightMaxM)+' м';
-    if(this.time>=(this.nextSample||0)){this.sample();this.nextSample=this.time+.5;}this.update();
+    if(this.time>=(this.nextSample||0)){this.sample();this.nextSample=this.time+.5;}this.update();recoveryUI(this);if(!wasManual&&this.recovery?.mode==='manual'&&$('pause').textContent==='Продолжить'&&!$('pause').disabled)$('pause').click();
    }catch(error){if(!this.disposed){this.initializing=false;this.stage='error';this.error=error.message;this.onError(error.message);this.update();}}
   }
-  start(){this.command('start');}stop(){this.command('stop');}
-  advance(seconds){if(this.busy||this.disposed||seconds<=0)return;this.busy=true;this.command('advance',{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
+  get active(){return this.recovery?.mode!=='request'&&super.active;}
+  renderStatus(){recoveryUI(this);}
+  start(){this.command('start');}stop(){releaseInput();this.command('stop');}
+  advance(seconds){if(this.busy||this.disposed||seconds<=0)return;if(this.recovery?.mode==='manual'){const now=performance.now();seconds=Math.min(.05,(now-(this.manualAt||now))/1000);this.manualAt=now;}this.busy=true;this.command('advance',{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
   paint(){if(view)view.dirty=true;}
-  dispose(){this.disposed=true;}
-  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
+  dispose(){releaseInput();this.disposed=true;clearInterval(manualTimer);manualTimer=null;$('manualPanel').hidden=true;$('recoveryDialog').close();}
+  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',recovery:this.recovery,elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
  }
  $('showDepth').addEventListener('change',()=>{if(view){view.terrain.material.vertexColors=$('showDepth').checked;view.terrain.material.needsUpdate=true;view.dirty=true;}});
  window.MuJoCoTruck=BrowserTruck;

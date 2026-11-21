@@ -78,7 +78,8 @@
       const destination=workRoute(start,kind==="mining"?"warehouse":"mining");
       return {id:"dynamic-work",name:"Рабочий путь после зарядки",equipmentId:route.equipmentId,points:destination.points,fromKind:kind,toKind:destination.zone.kind,bidirectional:true};
     }
-    return {stations,unavailable,obstacles,validate,plan,estimate,chargeRoute,chargeHint,workRoute,cycleRoute};
+    function avoid(obstacle){obstacles.push(obstacle);cachedPlanners.clear();}
+    return {stations,unavailable,obstacles,validate,plan,estimate,chargeRoute,chargeHint,workRoute,cycleRoute,avoid};
   }
   const api=Object.freeze({create,rectangle});if(typeof module!=="undefined"&&module.exports)module.exports=api;else root.TruckNavigation=api;
 })(globalThis);

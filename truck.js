@@ -141,7 +141,7 @@
     $("stationStatus").textContent=(sim?.station?"Станция: "+ChargingModel.labels[sim.station.stage]:"Автозарядка при "+fmt(config.chargeTrigger*100,0)+" %")+" · "+(navigation?.stations.length||0)+" станц.";
     $("empty").hidden=Boolean(sim);$("instruction").textContent=!sim?"Выберите самосвал и его траекторию или постройте тестовые пути.":sim.error?"Расчёт остановлен. Причина показана во всплывающем уведомлении.":sim.stage==="station"?"Станция: "+ChargingModel.labels[sim.station.stage]+". После заряда: "+(sim.payload>1e-6?"на склад с грузом.":"на добычу без груза."):sim.pathRole==="to-charge"?"Кратчайший путь на зарядку: учтены уклоны, границы и препятствия.":sim.pathRole==="to-work"?"После зарядки: "+(sim.workGoal.kind==="warehouse"?"на склад с грузом.":"на добычу без груза."):sim.stage==="idle"?"Непрерывный цикл. Погрузка и разгрузка — по 4 с при ×1. Нажмите «Запустить».":"Непрерывная работа. Погрузка и разгрузка — по 4 модельные секунды. Зарядка включается автоматически.";
     $("sourceLabel").textContent=source?.testPaths?"Тестовые пути":"Сохранённые пути";
-    if(sim?.error&&notice!==sim.error){notice=sim.error;toast(sim.error);}draw();
+    if(sim?.error&&notice!==sim.error){notice=sim.error;toast(sim.error);}draw();sim?.renderStatus?.();
   }
   document.addEventListener("visibilitychange",()=>{if(document.hidden)pause();});window.addEventListener("resize",render);
   $("showDepth").onchange=draw;$("showDepthValues").onchange=draw;

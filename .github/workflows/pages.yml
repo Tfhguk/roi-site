@@ -45,7 +45,7 @@ jobs:
         env:
           TEST_BROWSER_CHANNEL: chromium
       - name: Verify browser MuJoCo simulation
-        run: node test_web3d.cjs
+        run: node test_recovery.cjs && node test_web3d.cjs
         env:
           TEST_BROWSER_CHANNEL: chromium
       - name: Configure Pages
