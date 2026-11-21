@@ -13,7 +13,7 @@
   truck+=geom({type:'box',pos:'.083 0 .035',size:'.002 .03 .015',mass:'.005',rgba:'.55 .85 1 1'});
   for(const side of [-1,1])for(const x of [-.058,0,.058]){
    const at=`${x} ${side*c.trackWidth/2} -.022`;
-   truck+=geom({type:'sphere',pos:at,size:'.02',mass:'.001',rgba:'0 0 0 0',friction:'.002 .001 .0001'});
+   truck+=geom({name:'support_'+side+'_'+x,type:'sphere',pos:at,size:'.02',mass:'.001',rgba:'0 0 0 0',priority:1,friction:`${c.mu} .001 .0001`});
    truck+=tag('body',{pos:at},joint('wheel_'+side+'_'+x,'hinge','0 1 0',{damping:'.001'})+geom({type:'cylinder',size:'.02 .009',quat:'.70710678 .70710678 0 0',mass:'.01',rgba:'.06 .08 .1 1',contype:0,conaffinity:0}));
   }
   let bed=joint('tip','hinge','0 -1 0',{range:'0 1.05',damping:'.05'})+geom({type:'box',pos:'.043 0 .003',size:'.06 .04 .004',mass:'.12',rgba:'.95 .48 .06 1'});
@@ -36,7 +36,7 @@
   // actual station geometry participate in contacts.
   const rows=[];for(let r=e.rows-1;r>=0;r--)rows.push(...heights.slice(r*e.cols,(r+1)*e.cols));
   const field=tag('hfield',{name:'elevation',nrow:e.rows,ncol:e.cols,size:`${500*s} ${350*s} ${Math.max(.001,hi-lo)} .1`,elevation:rows.join(' ')});
-  const ground=geom({name:'terrain',type:'hfield',hfield:'elevation',pos:`${500*s} ${350*s} ${lo}`,rgba:'.25 .5 .3 1',friction:'.002 .001 .0001'});
+  const ground=geom({name:'terrain',type:'hfield',hfield:'elevation',pos:`${500*s} ${350*s} ${lo}`,rgba:'.25 .5 .3 1',friction:`${c.mu} .001 .0001`});
   return {xml:'<mujoco><compiler angle="radian" autolimits="true"/><option timestep=".004" integrator="implicitfast"/><default><geom friction=".7 .005 .0001" solref=".012 1"/></default><asset>'+field+'</asset><worldbody>'+ground+xml+'</worldbody><actuator>'+actuators+'</actuator></mujoco>',spawn,height,minimum:lo,maximum:hi};
  }
  root.MujocoScene={build};if(typeof module!=='undefined'&&module.exports)module.exports=root.MujocoScene;

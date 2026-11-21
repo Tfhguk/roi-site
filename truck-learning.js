@@ -2,7 +2,7 @@
  'use strict';
  const finitePoint=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1000&&p.y>=0&&p.y<=700;
  function key(source,route,config){
-  const text=JSON.stringify([source.id||'demo',route.equipmentId,source.boundary,source.zones,source.depth,...['metresPerUnit','terrainReliefM','maxGradeDeg','emergencyGradeDeg','massKg','payloadKg','mu','torqueLimit','trackWidth','k'].map(k=>config[k])]);
+  const text=JSON.stringify(['traction-v2',source.id||'demo',route.equipmentId,source.boundary,source.zones,source.depth,...['metresPerUnit','terrainReliefM','maxGradeDeg','emergencyGradeDeg','massKg','payloadKg','mu','torqueLimit','trackWidth','k'].map(k=>config[k])]);
   let hash=2166136261;for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}return 'v1-'+(hash>>>0).toString(16);
  }
  function create(id,saved){

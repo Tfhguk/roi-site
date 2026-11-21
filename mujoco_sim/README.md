@@ -46,6 +46,7 @@ node test_mujoco.cjs
 node test_web3d.cjs
 node test_recovery.cjs
 node test_learning.cjs
+node test_traction.cjs
 ```
 
 `--seconds` ограничивает модельное время; без него работа в окне продолжается до закрытия. `--speed` ускоряет воспроизведение, сохраняя длительности в модельных секундах. `--soc` — начальный заряд от 0,1 до 0,95; `--capacity` — тестовая ёмкость от 0,1 до 5 А·ч. Результат JSON содержит историю состояний и явную отметку `synthetic`.

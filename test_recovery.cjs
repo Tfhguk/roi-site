@@ -9,6 +9,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
  vm.runInThisContext(fs.readFileSync('mujoco-browser-worker.js','utf8').replace(/importScripts\([^;]+;/,'').replace("import('./assets/vendor/mujoco.js')","Promise.resolve(global.wasmModule)"));
  let serial=0;const request=m=>new Promise((resolve,reject)=>{resolver=result=>result.error?reject(Error(result.error)):resolve(result);global.onmessage({data:{...m,id:++serial,session:'recovery-test'}});});
  global.TruckCommandLog=require('./truck-command-log.js');
+ global.TruckTraction=require('./truck-traction.js');
  const configure=()=>request({op:'configure',source,route,config:{...TruckModel.defaults,terrainReliefM:.3,maxGradeDeg:18}});
  await configure();
  assert(vm.runInThisContext('Array.from(model.geom_bodyid).filter((body,i)=>body===0&&model.geom_type[i]===6).length===0'),'Depth exclusions must not create physical walls');

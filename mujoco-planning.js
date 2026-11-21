@@ -14,14 +14,14 @@
   source.routingObstacles=rectangles.map(r=>[{x:r.left*cw-margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.bottom*ch+margin},{x:r.left*cw-margin,y:r.bottom*ch+margin}]);
   const grade=config.maxGradeDeg;if(!Number.isFinite(grade)||grade<2||grade>25)throw Error('Допустимый уклон: от 2 до 25°');
   if(!Number.isFinite(config.emergencyGradeDeg)||config.emergencyGradeDeg<grade||config.emergencyGradeDeg>30)throw Error('Предельный уклон должен быть не меньше предпочтительного и не больше 30°');
-  route={...route,maxDepth:1000,maxSlope:Math.tan(config.emergencyGradeDeg*Math.PI/180)*config.metresPerUnit*Math.min(cw,ch)};
+  route={...route,maxDepth:1000,maxSlope:1000};
   const options={...route,obstacles:source.routingObstacles,transportAreas:source.zones.filter(z=>z.kind==='transport').map(z=>z.points),markers:G.routingMarkers(source.boundary,source.zones)};
   const points=G.findPath(route.points[0],route.points.at(-1),source.boundary,source.depth,options);
-  if(!points)throw Error('Нет безопасного пути по рельефу. Уменьшите перепад или измените зоны.');
+  if(!points)throw Error('Нет пути внутри транспортной зоны: проверьте границы, препятствия и отступы от меток.');
   route.points=points;source.routes=[...source.routes.filter(r=>r.id!==route.id),route];
   const navigation=N.create(source,config,route,learning);
   if(!navigation.stations.length)throw Error('Зарядная станция не помещается в зоне с безопасным подъездом.');
-  const safe=navigation.plan(points[0],points.at(-1));if(!safe)throw Error('Нет проходимого пути: проверьте уклоны, запас тяги и габарит машины.');
+  const safe=navigation.plan(points[0],points.at(-1));if(!safe)throw Error(navigation.analysis.reasons.join('. '));
   route.points=safe;source.routes=source.routes.map(r=>r.id===route.id?route:r);
   return {source,route,config,navigation,stations:navigation.stations};
  }

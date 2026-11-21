@@ -1,9 +1,10 @@
 /* Physics and planning stay off the UI thread; only poses cross the boundary. */
-importScripts(...['polygon-geometry.js','setup-geometry.js','charging-model.js','truck-model.js','truck-navigation.js','truck-learning.js','truck-command-log.js','mujoco-terrain.js','mujoco-planning.js','mujoco-scene.js'].map(file=>file+'?v='+(new URL(self.location.href).searchParams.get('v')||'dev')));
+importScripts(...['polygon-geometry.js','setup-geometry.js','charging-model.js','truck-model.js','truck-navigation.js','truck-learning.js','truck-command-log.js','truck-traction.js','mujoco-terrain.js','mujoco-planning.js','mujoco-scene.js'].map(file=>file+'?v='+(new URL(self.location.href).searchParams.get('v')||'dev')));
 let enginePromise,engine,model,data,reference,prepared,scene,session,ids,dynamic,stats,sceneKey,controls,truckMass,cargoId;
 let recovery,leg,watch,manualInput={drive:0,turn:0,until:0};
 let knowledge,lastMemoryRevision=-1,trace=[],traceRole;
 let commands,lastCommandRevision=-1;
+let supportGeoms=[];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),angle=v=>Math.atan2(Math.sin(v),Math.cos(v));
 const joint=name=>{const id=engine.mj_name2id(model,3,name);return {q:model.jnt_qposadr[id],d:model.jnt_dofadr[id]};};
 const actuator=name=>engine.mj_name2id(model,19,name);
@@ -22,6 +23,7 @@ async function configure(m){
  ids=Object.fromEntries(['x','y','z','yaw','pitch','roll'].map(name=>[name,joint(name)]));
  controls=Object.fromEntries(['pitch_support','roll_support','tip_servo',...prepared.stations.flatMap((s,i)=>['arm_x_'+i,'arm_z_'+i,'wrist_'+i])].map(name=>[name,actuator(name)]));
  truckMass=model.body_subtreemass[engine.mj_name2id(model,1,'truck')];cargoId=engine.mj_name2id(model,5,'cargo');
+ supportGeoms=[-1,1].flatMap(side=>[-.058,0,.058].map(x=>engine.mj_name2id(model,5,'support_'+side+'_'+x)));
  prepared.navigation=TruckNavigation.create(prepared.source,prepared.config,prepared.route,knowledge);
  const selected=prepared.navigation.plan(m.route.points[0],m.route.points.at(-1));if(!selected)throw Error('Не найден проходимый путь с учётом сохранённого опыта. Можно очистить память маршрутов.');prepared.route.points=selected;
  reference=new TruckModel.Simulation({...prepared.route,continuous:true},prepared.config,prepared.navigation);
@@ -140,14 +142,14 @@ function step(){
  }
  if(recovery.mode!=='auto'){target=controlledTarget(p,dt);auxiliaryTime(dt,p,target);}
  const mass=truckMass,grad=gradient(p.x,p.y),vx=data.qvel[ids.x.d],vy=data.qvel[ids.y.d];
- const maxForce=Math.min(c.mu*mass*9.81,2*c.torqueLimit/c.k);
  data.qfrc_applied.fill(0);
- const targetV=target.v;
- const fx=mass*(25*(target.x-p.x)+8*(targetV*Math.cos(target.yaw)-vx))+mass*9.81*grad[0];
- const fy=mass*(25*(target.y-p.y)+8*(targetV*Math.sin(target.yaw)-vy))+mass*9.81*grad[1];
- const mag=Math.hypot(fx,fy),ratio=Math.min(1,maxForce/Math.max(1e-9,mag));
- data.qfrc_applied[ids.x.d]=fx*ratio;data.qfrc_applied[ids.y.d]=fy*ratio;
- data.qfrc_applied[ids.yaw.d]=clamp(.25*angle(target.yaw-p.yaw)+.04*(target.omega-data.qvel[ids.yaw.d]),-.15,.15);
+ const traction=TruckTraction.forces(c,mass,p,target,grad,[vx,vy],data.qvel[ids.yaw.d],recovery.mode==='manual');
+ let grounded=false;
+ for(let i=0;i<data.ncon;i++){const contact=data.contact.get(i);grounded||=(contact.geom1===0&&supportGeoms.includes(contact.geom2))||(contact.geom2===0&&supportGeoms.includes(contact.geom1));contact.delete();}
+ if(grounded){data.qfrc_applied[ids.x.d]=traction.fx;data.qfrc_applied[ids.y.d]=traction.fy;data.qfrc_applied[ids.yaw.d]=traction.torque;}
+ // Fixed support spheres stand in for a rolling track. While moving they use
+ // rolling resistance; at rest the full surface coefficient supplies braking.
+ for(const id of supportGeoms)model.geom_friction[id*3]=traction.contactFriction;
  const along=grad[0]*Math.cos(p.yaw)+grad[1]*Math.sin(p.yaw),across=-grad[0]*Math.sin(p.yaw)+grad[1]*Math.cos(p.yaw);
  data.ctrl[controls.pitch_support]=-Math.atan(along);data.ctrl[controls.roll_support]=Math.atan(across);data.ctrl[controls.tip_servo]=reference.theta;
  for(let i=0;i<prepared.stations.length;i++){
@@ -157,7 +159,7 @@ function step(){
  model.geom_rgba[cargoId*4+3]=reference.payload>0?1:0;
  engine.mj_step(model,data);stats.steps++;
  if(!Number.isFinite(data.qpos[ids.x.q]))reference.fail('Ошибка физической модели. Выполните сброс.');
- else if(recovery.mode!=='manual'&&(Math.abs(data.qpos[ids.roll.q])>.65||Math.abs(data.qpos[ids.pitch.q])>.65)){if(recovery.mode!=='request')requestManual('Слишком большой наклон шасси. Автоматический выезд остановлен.');}
+ else if(recovery.mode!=='manual'&&(Math.abs(data.qpos[ids.roll.q])>1.15||Math.abs(data.qpos[ids.pitch.q])>1.15)){if(recovery.mode!=='request')requestManual('Критический наклон шасси. Попытка проезда остановлена.');}
  else if(recovery.mode==='auto'&&error>.25)recover();
 }
 function recordCommands(p=pose()){
