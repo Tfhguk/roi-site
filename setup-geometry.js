@@ -207,7 +207,7 @@
   function plannerLimits(options={}) {
     const limits={maxDepth:options.maxDepth??5,maxSlope:options.maxSlope??2,boundaryClearance:options.boundaryClearance??0,markerClearance:options.markerClearance??0};
     if(!Object.values(limits).every(v=>Number.isFinite(v)&&v>=0&&v<=1000))throw Error("Глубина и перепад для автопостроения должны быть от 0 до 1000.");
-    return {...limits,objective:options.objective==="shortest"?"shortest":"terrain",...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
+    return {...limits,objective:options.objective==="shortest"?"shortest":"terrain",traversable:options.traversable,...(options.transportAreas?{transportAreas:options.transportAreas}:{}),markers:options.markers||[],obstacles:options.obstacles||[]};
   }
   function makeGraph(polygon,depth,limits) {
     limits={...limits,safety:safetyContext(polygon,limits.transportAreas,limits.markers)};
@@ -235,6 +235,7 @@
         const nx=x+dx,ny=y+dy,j=ny*depth.cols+nx;
         if(nx<0||nx>=depth.cols||ny<0||ny>=depth.rows||!allowed[j])continue;
         if(Math.abs(depth.cells[i]-depth.cells[j])>limits.maxSlope||!inPolygon([nodes[i],nodes[j]],polygon,false)||(limits.transportAreas&&!inAreas([nodes[i],nodes[j]],limits.transportAreas))||hitsObstacles([nodes[i],nodes[j]],limits.obstacles)||clearanceErrors([nodes[i],nodes[j]],limits,limits.safety).length)continue;
+        if(limits.traversable&&!limits.traversable(nodes[i],nodes[j]))continue;
         const delta=Math.abs(depth.cells[i]-depth.cells[j]);
         const m=dx&&dy?metric(nodes[i],nodes[j]):{peak:delta,variation:delta,length:dist(nodes[i],nodes[j])};
         if(m)result.push({i:j,...m});
@@ -246,6 +247,7 @@
   function segmentMetrics(a,b,polygon,depth,limits){
     if(dist(a,b)<=.1)return {peak:0,variation:0,length:0};
     if(routeErrors({points:[a,b],...limits},polygon,depth,limits.transportAreas,limits.safety).length)return null;
+    if(limits.traversable&&!limits.traversable(a,b))return null;
     const ts=segmentCuts(a,b,polygon,depth);let previous,previousValue,peak=0,variation=0;
     for(const t of [0,...ts.slice(1).flatMap((t,j)=>[(ts[j]+t)/2,t])]){
       const values=cellsAt({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t},depth).map(i=>depth.cells[i]);

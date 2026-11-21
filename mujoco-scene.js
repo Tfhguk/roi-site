@@ -31,8 +31,9 @@
    xml+=tag('body',{pos:`${x} ${y} ${height(x,y)}`,euler:`0 0 ${station.heading}`},geom({type:'box',pos:'0 0 .035',size:`${c.stationLengthM/2} ${c.stationWidthM/2} .035`,rgba:'.18 .3 .42 1'})+geom({type:'box',pos:'-.08 0 .12',size:'.03 .06 .08',rgba:'.2 .75 .45 1'})+tag('body',{pos:`${c.stationLengthM/2} 0 0`},arm));
    for(const [axis,kp,kv]of [['arm_x',80,10],['arm_z',150,12],['wrist',3,.2]])actuators+=tag('position',{name:axis+'_'+i,joint:axis+'_'+i,kp,kv,forcerange:'-8 8'});
   });
-  const depth=p.source.depth,cw=1000*s/depth.cols,ch=700*s/depth.rows;
-  depth.cells.forEach((v,i)=>{if(v!==null)return;const x=(i%depth.cols+.5)*cw,y=(Math.floor(i/depth.cols)+.5)*ch;xml+=geom({type:'box',pos:`${x} ${y} ${height(x,y)+.08}`,size:`${cw/2} ${ch/2} .08`,rgba:'.7 .12 .15 1'});});
+  // Depth-map exclusions are routing information, never physical walls.
+  // The browser draws them as a surface overlay; only the heightfield and
+  // actual station geometry participate in contacts.
   const rows=[];for(let r=e.rows-1;r>=0;r--)rows.push(...heights.slice(r*e.cols,(r+1)*e.cols));
   const field=tag('hfield',{name:'elevation',nrow:e.rows,ncol:e.cols,size:`${500*s} ${350*s} ${Math.max(.001,hi-lo)} .1`,elevation:rows.join(' ')});
   const ground=geom({name:'terrain',type:'hfield',hfield:'elevation',pos:`${500*s} ${350*s} ${lo}`,rgba:'.25 .5 .3 1',friction:'.002 .001 .0001'});

@@ -83,9 +83,9 @@ def scene_xml(scene):
         if not blocked:
             continue
         color = ".7 .12 .15 1" if blocked else f"{.12 + min(value/5, 1)*.48} {.55-min(value/5, 1)*.18} .3 1"
-        add(world, "geom", name=f"cell_{i}", type="box", pos=f"{x} {y} {terrain.height(x,y)+.08}",
-            size=f"{cw/2} {ch/2} {.08 if blocked else .001}", rgba=color,
-            contype="1" if blocked else "0", conaffinity="1" if blocked else "0")
+        add(world, "geom", name=f"cell_{i}", type="box", pos=f"{x} {y} {terrain.height(x,y)+.002}",
+            size=f"{cw/2} {ch/2} .001", rgba=color,
+            contype="0", conaffinity="0")
 
     def line(a, b, color, radius=.012, z=.015):
         start,end=np.array([a['x'],a['y']])*scale,np.array([b['x'],b['y']])*scale

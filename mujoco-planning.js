@@ -1,8 +1,8 @@
 (function(root){
  'use strict';
- function prepare(input,work,settings){
+ function prepare(input,work,settings,learning=null){
   const G=root.SetupGeometry,T=root.MetricTerrain,N=root.TruckNavigation;
-  const source=structuredClone(input),config={terrainReliefM:.75,maxGradeDeg:18,...settings};let route=structuredClone(work);
+  const source=structuredClone(input),config={terrainReliefM:.75,maxGradeDeg:18,emergencyGradeDeg:25,...settings};let route=structuredClone(work);
   source.elevation=T.generate(source,config.metresPerUnit,config.terrainReliefM);
   source.depth={...source.depth,unit:'m',cells:source.depth.cells.map((v,i)=>v===null?null:T.sample(source.elevation,(i%source.depth.cols+.5)*1000/source.depth.cols,(Math.floor(i/source.depth.cols)+.5)*700/source.depth.rows))};
   const cw=1000/source.depth.cols,ch=700/source.depth.rows,margin=.12/config.metresPerUnit,rectangles=[];
@@ -13,14 +13,16 @@
   }
   source.routingObstacles=rectangles.map(r=>[{x:r.left*cw-margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.top*ch-margin},{x:r.right*cw+margin,y:r.bottom*ch+margin},{x:r.left*cw-margin,y:r.bottom*ch+margin}]);
   const grade=config.maxGradeDeg;if(!Number.isFinite(grade)||grade<2||grade>25)throw Error('Допустимый уклон: от 2 до 25°');
-  route={...route,maxDepth:1000,maxSlope:Math.tan(grade*Math.PI/180)*config.metresPerUnit*Math.min(cw,ch)};
+  if(!Number.isFinite(config.emergencyGradeDeg)||config.emergencyGradeDeg<grade||config.emergencyGradeDeg>30)throw Error('Предельный уклон должен быть не меньше предпочтительного и не больше 30°');
+  route={...route,maxDepth:1000,maxSlope:Math.tan(config.emergencyGradeDeg*Math.PI/180)*config.metresPerUnit*Math.min(cw,ch)};
   const options={...route,obstacles:source.routingObstacles,transportAreas:source.zones.filter(z=>z.kind==='transport').map(z=>z.points),markers:G.routingMarkers(source.boundary,source.zones)};
   const points=G.findPath(route.points[0],route.points.at(-1),source.boundary,source.depth,options);
   if(!points)throw Error('Нет безопасного пути по рельефу. Уменьшите перепад или измените зоны.');
   route.points=points;source.routes=[...source.routes.filter(r=>r.id!==route.id),route];
-  const navigation=N.create(source,config,route);
+  const navigation=N.create(source,config,route,learning);
   if(!navigation.stations.length)throw Error('Зарядная станция не помещается в зоне с безопасным подъездом.');
-  const errors=navigation.validate(points);if(errors.length)throw Error(errors.join('; '));
+  const safe=navigation.plan(points[0],points.at(-1));if(!safe)throw Error('Нет проходимого пути: проверьте уклоны, запас тяги и габарит машины.');
+  route.points=safe;source.routes=source.routes.map(r=>r.id===route.id?route:r);
   return {source,route,config,navigation,stations:navigation.stations};
  }
  const api={prepare};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.MujocoPlanning=api;

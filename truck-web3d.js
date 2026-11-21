@@ -13,10 +13,23 @@
  document.body.classList.add('mujoco-mode');$('map').style.visibility='hidden';$('depthReadout').hidden=true;
  document.querySelector('h1').textContent='3D симуляция';document.querySelector('.badge').textContent='MuJoCo · в браузере';
  document.querySelector('.truck-side').hidden=true;document.querySelector('.note').textContent='Высоты — в метрах. Рельеф и техника тестовые. Физика рассчитывается в браузере.';
+ document.querySelectorAll('#helpDialog li')[3].textContent='Цвет поверхности показывает высоту в метрах. Красные отметки — запреты для автопилота, без физических стен. Вручную можно ездить по склонам; действуют контакты с рельефом и корпусом станции.';
  $('showDepthValues').closest('label').hidden=true;$('showDepth').parentElement.lastChild.textContent='Высоты, м';
  document.querySelector('.metrics').insertAdjacentHTML('beforeend','<div><span>Высота поверхности</span><strong id="height3d">0,00 м</strong></div><div><span>Продольный / боковой наклон</span><strong id="slope3d">0° / 0°</strong></div>');
  for(const id of ['leftSpeed','rightSpeed'])$(id).parentElement.classList.add('shaft-metric');
- document.querySelector('#settingsForm .fields').insertAdjacentHTML('beforeend','<label>Перепад рельефа, м<input name="terrainReliefM" type="number" min="0" max="1.5" step="0.05" required></label><label>Предельный уклон, °<input name="maxGradeDeg" type="number" min="2" max="25" step="1" required></label>');
+ document.querySelector('#settingsForm .fields').insertAdjacentHTML('beforeend','<label>Перепад рельефа, м<input name="terrainReliefM" type="number" min="0" max="1.5" step="0.05" required></label><label>Предпочтительный уклон, °<input name="maxGradeDeg" type="number" min="2" max="25" step="1" required></label><label>Предельный уклон, °<input name="emergencyGradeDeg" type="number" min="2" max="30" step="1" required></label>');
+ const memoryPrefix='roi_truck_learning_v1:'+(window.AppCloud?.session()?.user?.id||'demo')+':';
+ function readMemory(key){try{return JSON.parse(localStorage.getItem(memoryPrefix+key))?.data;}catch{return null;}}
+ function saveMemory(data){try{localStorage.setItem(memoryPrefix+data.key,JSON.stringify({updatedAt:Date.now(),data}));const keys=Object.keys(localStorage).filter(k=>k.startsWith(memoryPrefix)).sort((a,b)=>{try{return JSON.parse(localStorage.getItem(b)).updatedAt-JSON.parse(localStorage.getItem(a)).updatedAt;}catch{return 0;}});for(const key of keys.slice(8))localStorage.removeItem(key);}catch{if(active)active.memoryVolatile=true;}}
+ document.querySelector('.note').insertAdjacentHTML('beforebegin','<button id="routeAnalysis" class="route-analysis">Анализ маршрута</button>');
+ document.body.insertAdjacentHTML('beforeend','<dialog id="analysisDialog"><h2>Проходимость и память</h2><p id="analysisDetails"></p><p>Это оценка тестовой модели. Проверка учитывает габарит, уклоны, запас тяги с грузом, препятствия и прошлые неудачные проезды.</p><div class="dialog-actions"><button id="forgetRoutes">Забыть опыт</button><button id="closeAnalysis">Закрыть</button></div></dialog>');
+ $('routeAnalysis').onclick=()=>{$('analysisDialog').showModal();};$('closeAnalysis').onclick=()=>$('analysisDialog').close();$('forgetRoutes').onclick=()=>active?.command('forget');
+ function analysisUI(sim){
+  const a=sim.analysis,m=sim.learning;if(!a)return;
+  $('routeAnalysis').textContent=(a.passable?(a.steepFallback?'Крутой участок':'Проезд допустим'):'Проезд не найден')+' · память: '+(m?.routes||0);
+  $('analysisDetails').textContent=(a.passable?'Путь проходим по расчёту. ':'Нет проходимого пути. ')+(a.maxGradeDeg!==undefined?'Максимальный уклон '+a.maxGradeDeg.toFixed(1)+'°. Запас тяги '+Math.round((a.minTractionReserve||0)*100)+'%. ':'')+(a.steepFallback?'Пологого пути нет: разрешён более крутой участок. ':'')+(a.remembered?'Использован ранее пройденный путь. ':'')+'Сохранено путей: '+(m?.routes||0)+', проблемных участков: '+(m?.hazards||0)+'. '+(a.reasons||[]).join('; ')+' '+(sim.memoryVolatile?'Память доступна только до закрытия страницы.':'Опыт сохраняется в этом браузере отдельно для полигона, машины и параметров рельефа.');
+  $('forgetRoutes').disabled=sim.active;
+ }
  const tools=document.createElement('div');Object.assign(tools.style,{position:'absolute',right:'8px',top:'8px',display:'flex',gap:'6px',zIndex:2});tools.innerHTML='<button id="follow3d">За самосвалом</button><button id="overview3d">Общий вид</button>';host.append(tools);
  $('follow3d').onclick=()=>{if(view){view.follow=true;view.zoom=1;view.dirty=true;}};
  $('overview3d').onclick=()=>{if(view){view.follow=false;view.zoom=1;view.dirty=true;}};
@@ -38,6 +51,7 @@
  function keyboard(e,down){if(active?.recovery?.mode!=='manual'||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;const code=e.code;if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyS','KeyA','KeyD','Space'].includes(code))return;e.preventDefault();if(code==='Space'){releaseInput();return;}down?keys.add(code):keys.delete(code);input={drive:Number(keys.has('ArrowUp')||keys.has('KeyW'))-Number(keys.has('ArrowDown')||keys.has('KeyS')),turn:Number(keys.has('ArrowLeft')||keys.has('KeyA'))-Number(keys.has('ArrowRight')||keys.has('KeyD'))};sendInput();}
  window.addEventListener('keydown',e=>keyboard(e,true));window.addEventListener('keyup',e=>keyboard(e,false));window.addEventListener('blur',releaseInput);document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseInput();});
  function recoveryUI(sim){
+  analysisUI(sim);
   const r=sim.recovery,manual=r?.mode==='manual',request=r?.mode==='request';$('manualPanel').hidden=!manual;$('manual3d').disabled=sim.initializing||sim.theta>.02||!manual&&!request&&!['driving','turning','dock-align'].includes(sim.stage)||!!sim.station&&!['complete','stopped','error'].includes(sim.station.stage)||!sim.active&&!request;
   $('speed').disabled=manual;
   if(manual&&!manualTimer)manualTimer=setInterval(sendInput,100);else if(!manual&&manualTimer){clearInterval(manualTimer);manualTimer=null;input={drive:0,turn:0};keys.clear();}
@@ -81,7 +95,11 @@
   for(let r=0;r<e.rows;r++)for(let c=0;c<e.cols;c++){const i=r*e.cols+c,z=e.cells[i],t=(z-v.low)/Math.max(.001,v.high-v.low);positions.setXYZ(i,c/(e.cols-1)*1000*s,r/(e.rows-1)*700*s,z);const color=new T.Color().setHSL(.43-.3*t,.5,.34+.13*t);colors.push(color.r,color.g,color.b);}
   geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));geometry.computeVertexNormals();v.terrain=new T.Mesh(geometry,new T.MeshLambertMaterial({vertexColors:true,side:T.DoubleSide}));v.root.add(v.terrain);
   const staticBoxes=info.geoms.map((g,i)=>({...g,index:i})).filter(g=>!g.moving&&g.type===6),instances=new T.InstancedMesh(new T.BoxGeometry(2,2,2),new T.MeshLambertMaterial({color:0xa82b35}),staticBoxes.length);
-  staticBoxes.forEach((g,j)=>{const m=matrix(T,info.poses,g.index);m.scale(new T.Vector3(...g.size));instances.setMatrixAt(j,m);});instances.computeBoundingSphere();v.root.add(instances);
+  staticBoxes.forEach((g,j)=>{const m=matrix(T,info.poses,g.index);m.scale(new T.Vector3(...g.size));instances.setMatrixAt(j,m);});if(staticBoxes.length){instances.computeBoundingSphere();v.root.add(instances);}
+  if(info.depth){const vertices=[],d=info.depth,cw=1000*s/d.cols,ch=700*s/d.rows;
+   d.cells.forEach((value,i)=>{if(value!==null)return;const x=i%d.cols*cw,y=Math.floor(i/d.cols)*ch,n=4;for(let row=0;row<n;row++)for(let col=0;col<n;col++)for(const [a,b]of [[0,0],[1,0],[1,1],[0,0],[1,1],[0,1]]){const px=x+(col+a)*cw/n,py=y+(row+b)*ch/n;vertices.push(px,py,height(info,px,py)+.004);}});
+   const overlay=new T.Mesh(new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(vertices,3)),new T.MeshBasicMaterial({color:0xef4444,transparent:true,opacity:.4,side:T.DoubleSide,depthWrite:false}));v.root.add(overlay);
+  }
   info.geoms.forEach((g,i)=>{
    if(!g.moving)return;const [x,y,z]=g.size;let shape;
    if(g.type===6)shape=new T.BoxGeometry(2*x,2*y,2*z);
@@ -97,11 +115,12 @@
   const points=message.state.points,key=message.state.pathRole+JSON.stringify(points);if(key!==v.pathKey){if(v.path){v.root.remove(v.path);v.path.geometry.dispose();v.path.material.dispose();}v.path=line(v,points,message.state.pathRole==='to-charge'?0xfbbf24:message.state.pathRole==='to-work'?0xe879f9:0x22d3ee);v.root.add(v.path);v.pathKey=key;}v.dirty=true;
  }
  class BrowserTruck extends TruckModel.Simulation{
-  static defaults={terrainReliefM:.75,maxGradeDeg:18};
-  constructor(route,config,source,onUpdate,onError){super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;active=this;this.command('configure',{source,route,config});}
+  static defaults={terrainReliefM:.75,maxGradeDeg:18,emergencyGradeDeg:25};
+  constructor(route,config,source,onUpdate,onError){super(route,config,null);this.isMuJoCo=true;this.initializing=true;this.session=crypto.randomUUID();this.update=onUpdate;this.onError=onError;active=this;this.memoryKey=TruckLearning.key(source,route,config);this.command('configure',{source,route,config,memory:readMemory(this.memoryKey)});}
   async command(op,values={}){
    try{const message=await rpc({op,session:this.session,...values});if(this.disposed)return;
     const v=await loadView();if(this.disposed)return;if(message.info){if(!message.info.reusedScene||!v.info)setupView(v,message.info);this.elevationMap=message.info.elevation;this.stations=message.info.stations;}
+    if(message.memory){this.learnedMemory=message.memory;saveMemory(message.memory);}
     const {soc,...state}=message.state;this.battery.soc=soc;const wasManual=this.recovery?.mode==='manual';Object.assign(this,state);this.initializing=false;if(this.station)this.station.export=()=>({stage:this.station.stage});updateView(v,message);
     if(this.recovery?.mode==='manual'&&!wasManual){this.previousSpeed=$('speed').value;$('speed').value='1';this.manualAt=performance.now();}else if(wasManual&&this.recovery?.mode!=='manual'){$('speed').value=this.previousSpeed||'1';}
     const n=v=>Number(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});$('height3d').textContent=n(this.groundHeightM)+' м';$('slope3d').textContent=n(this.pitchDeg)+'° / '+n(this.rollDeg)+'°';$('depthRange').textContent=n(this.heightMinM)+' — '+n(this.heightMaxM)+' м';
@@ -113,8 +132,8 @@
   start(){this.command('start');}stop(){releaseInput();this.command('stop');}
   advance(seconds){if(this.busy||this.disposed||seconds<=0)return;if(this.recovery?.mode==='manual'){const now=performance.now();seconds=Math.min(.05,(now-(this.manualAt||now))/1000);this.manualAt=now;}this.busy=true;this.command('advance',{seconds:Math.min(1,seconds)}).finally(()=>{this.busy=false;});}
   paint(){if(view)view.dirty=true;}
-  dispose(){releaseInput();this.disposed=true;clearInterval(manualTimer);manualTimer=null;$('manualPanel').hidden=true;$('recoveryDialog').close();}
-  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',recovery:this.recovery,elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
+  dispose(){releaseInput();this.disposed=true;clearInterval(manualTimer);manualTimer=null;$('manualPanel').hidden=true;$('recoveryDialog').close();$('analysisDialog').close();}
+  export(){const result=super.export();return {...result,engine:'MuJoCo WASM',learning:this.learnedMemory,analysis:this.analysis,recovery:this.recovery,elevation:this.elevationMap,stations:this.stations,performance:this.stats,camera:view?{azimuth:view.azimuth,elevation:view.elevation,zoom:view.zoom,follow:view.follow}:null,assumptions:{...result.assumptions,drive:'MuJoCo WASM heightfield contacts; simplified track supports; supervisory trajectory controller'}};}
  }
  $('showDepth').addEventListener('change',()=>{if(view){view.terrain.material.vertexColors=$('showDepth').checked;view.terrain.material.needsUpdate=true;view.dirty=true;}});
  window.MuJoCoTruck=BrowserTruck;

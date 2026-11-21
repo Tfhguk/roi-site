@@ -6,7 +6,7 @@
     const ux=Math.cos(heading),uy=Math.sin(heading);
     return [[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y])=>({x:centre.x+ux*x*length/2-uy*y*width/2,y:centre.y+uy*x*length/2+ux*y*width/2}));
   }
-  function create(source,config,route){
+  function create(source,config,route,learning=null){
     const scale=config.metresPerUnit,areas=source.zones.filter(z=>z.kind==="transport").map(z=>z.points),markers=G.routingMarkers(source.boundary,source.zones),safety=G.safetyContext(source.boundary,areas,markers);
     const policy={maxDepth:5,maxSlope:2,boundaryClearance:5,markerClearance:40,...Object.fromEntries(["maxDepth","maxSlope","boundaryClearance","markerClearance"].filter(k=>route[k]!==undefined).map(k=>[k,route[k]])),transportAreas:areas,markers};
     const stations=[],unavailable=[];
@@ -32,14 +32,49 @@
       }
       if(station)stations.push(station);else unavailable.push(zone.name);
     }
-    const obstacles=[...stations.map(s=>s.obstacle),...(source.routingObstacles||[])],options={...policy,obstacles};
-    function validate(points){return G.routeErrors({points,...options},source.boundary,source.depth,areas,safety);}
+    const obstacles=[...stations.map(s=>s.obstacle),...(source.routingObstacles||[]),...(learning?.memory.hazards||[])],options={...policy,obstacles};
+    const metric=!!(source.elevation&&root.MetricTerrain),preferred=config.maxGradeDeg??18,hard=Math.max(preferred,config.emergencyGradeDeg??25),cell=Math.min(1000/source.depth.cols,700/source.depth.rows)*scale;
+    let lastAnalysis=null,remembered=false;const assessments=new Map();
+    function assess(a,b){
+      if(!metric)return {passable:true,maxGradeDeg:0,minTractionReserve:1,reasons:[]};
+      const key=[a.x,a.y,b.x,b.y].join(',');if(assessments.has(key))return assessments.get(key);
+      const heading=Math.atan2(b.y-a.y,b.x-a.x),n=Math.max(1,Math.ceil(distance(a,b)*scale/.10)),result={passable:true,maxGradeDeg:0,minTractionReserve:1,reasons:[]};
+      const height=(x,y)=>root.MetricTerrain.sample(source.elevation,x/scale,y/scale),mass=config.massKg+config.payloadKg;
+      for(let i=0;i<=n;i++){
+        const t=i/n,p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t},x=p.x*scale,y=p.y*scale,h=.04,gx=(height(x+h,y)-height(x-h,y))/(2*h),gy=(height(x,y+h)-height(x,y-h))/(2*h);
+        const along=gx*Math.cos(heading)+gy*Math.sin(heading),cross=-gx*Math.sin(heading)+gy*Math.cos(heading),incline=Math.atan(Math.hypot(gx,gy))*180/Math.PI,theta=Math.atan(Math.abs(along));
+        const force=mass*9.81*(Math.sin(theta)+.03*Math.cos(theta)),traction=Math.min(config.mu*mass*9.81*Math.cos(theta),2*config.torqueLimit/config.k),reserve=1-force/Math.max(1e-6,traction);
+        result.maxGradeDeg=Math.max(result.maxGradeDeg,incline);result.minTractionReserve=Math.min(result.minTractionReserve,reserve);
+        const body=rectangle(p,.20/scale,.15/scale,heading);
+        let reason='';
+        if(!G.inPolygon(body,source.boundary)||!G.inAreas(body,areas,true)||G.hitsObstacles([...body,body[0]],stations.map(s=>s.footprint)))reason='Не проходит габарит машины';
+        else if(incline>hard+.05)reason='Превышен предельный уклон';
+        else if(reserve<.10)reason='Недостаточный запас тяги с грузом';
+        else if(Math.abs(Math.atan(cross))>Math.min(hard*Math.PI/180,Math.atan(config.trackWidth/(2*.07))))reason='Опасный поперечный наклон';
+        if(reason){result.passable=false;if(!result.reasons.includes(reason))result.reasons.push(reason);break;}
+      }
+      if(assessments.size>20000)assessments.clear();assessments.set(key,result);return result;
+    }
+    function limits(relaxed){return {...options,...(metric?{maxSlope:Math.tan((relaxed?hard:preferred)*Math.PI/180)*cell,traversable:(a,b)=>{const r=assess(a,b);return r.passable&&(relaxed||r.maxGradeDeg<=preferred+.05);}}:{})};}
+    function analyze(points){
+      const reasons=G.routeErrors({points,...limits(true)},source.boundary,source.depth,areas,safety),result={passable:!reasons.length,maxGradeDeg:0,minTractionReserve:1,preferredGradeDeg:preferred,hardGradeDeg:hard,steepFallback:false,remembered,reasons};
+      for(let i=1;i<points.length;i++){const r=assess(points[i-1],points[i]);result.maxGradeDeg=Math.max(result.maxGradeDeg,r.maxGradeDeg);result.minTractionReserve=Math.min(result.minTractionReserve,r.minTractionReserve);if(!r.passable){result.passable=false;result.reasons.push(...r.reasons);}}
+      result.steepFallback=metric&&result.maxGradeDeg>preferred+.05;result.reasons=[...new Set(result.reasons)];return result;
+    }
+    function validate(points){return analyze(points).reasons;}
     const cachedPlanners=new Map();
     function plan(start,end,objective="terrain"){
       if(distance(start,end)<.1)return [{...start},{...end}];
-      if(!cachedPlanners.has(objective))cachedPlanners.set(objective,G.createPathPlanner(source.boundary,source.depth,{...options,objective}));
-      const points=cachedPlanners.get(objective)(start,end);
-      return points&&!validate(points).length?points:null;
+      remembered=false;
+      for(const relaxed of metric?[false,true]:[false]){
+        const key=objective+':'+relaxed,rule=limits(relaxed);
+        if(!cachedPlanners.has(key))cachedPlanners.set(key,G.createPathPlanner(source.boundary,source.depth,{...rule,objective}));
+        let points=cachedPlanners.get(key)(start,end);
+        const known=(learning?.candidates(start,end,scale)||[]).filter(p=>!G.routeErrors({points:p,...rule},source.boundary,source.depth,areas,safety).length&&p.slice(1).every((b,i)=>!rule.traversable||rule.traversable(p[i],b))).sort((a,b)=>estimate(a).length-estimate(b).length)[0];
+        if(known&&(!points||estimate(known).length<=estimate(points).length*(objective==='shortest'?1:1.05)+.001)){points=known;remembered=true;}
+        if(points){lastAnalysis=analyze(points);if(lastAnalysis.passable)return points;}
+      }
+      lastAnalysis={passable:false,reasons:['Нет проходимого пути даже с увеличенным допустимым уклоном'],preferredGradeDeg:preferred,hardGradeDeg:hard};return null;
     }
     function estimate(points){
       const length=points.slice(1).reduce((sum,p,i)=>sum+distance(points[i],p)*scale,0),v=Math.min(config.speed,config.k*config.wheelLimit);
@@ -49,10 +84,11 @@
     }
     function chargeRoute(start,soc){
       if(!stations.length)throw Error(unavailable.length?"В зоне зарядки не помещается тестовая станция с подъездом: "+unavailable.join(", "):"Добавьте зону зарядки внутри транспортной зоны.");
-      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock,"shortest");return points?[{points,station,...estimate(points)}]:[];}).sort((a,b)=>a.length-b.length||a.requiredSoc-b.requiredSoc);
+      const candidates=stations.flatMap(station=>{const points=plan(start,station.dock,"shortest");return points?[{points,station,analysis:lastAnalysis,...estimate(points)}]:[];}).sort((a,b)=>a.length-b.length||a.requiredSoc-b.requiredSoc);
       if(!candidates.length)throw Error("Из текущего положения нет допустимого пути к зарядной станции по карте глубины.");
       const reachable=candidates.find(r=>r.requiredSoc+.055<soc);
       if(!reachable)throw Error("Заряда недостаточно для доезда до доступной станции с резервом. Увеличьте порог выезда на зарядку.");
+      lastAnalysis=reachable.analysis;
       return reachable;
     }
     function chargeHint(start){return stations.length?Math.min(...stations.map(s=>estimate([start,s.dock]).requiredSoc)):0;}
@@ -64,10 +100,11 @@
         const centre=zone.points.reduce((a,p)=>({x:a.x+p.x/zone.points.length,y:a.y+p.y/zone.points.length}),{x:0,y:0});
         const anchors=haulRoutes.flatMap(r=>[r.points[0],r.points.at(-1)]).filter(p=>G.inside(p,zone.points));
         // Prefer a saved hauling endpoint, so work can resume on that trajectory.
-        for(const end of [...anchors,centre]){const points=plan(start,end);if(points){candidates.push({points,zone,...estimate(points)});break;}}
+        for(const end of [...anchors,centre]){const points=plan(start,end);if(points){candidates.push({points,zone,analysis:lastAnalysis,...estimate(points)});break;}}
       }
       candidates.sort((a,b)=>a.requiredSoc-b.requiredSoc);
       if(!candidates.length)throw Error("Не найден путь по карте глубины к "+(kind==="warehouse"?"складу":"зоне добычи")+" после зарядки.");
+      lastAnalysis=candidates[0].analysis;
       return candidates[0];
     }
     function cycleRoute(start,kind){
@@ -78,8 +115,8 @@
       const destination=workRoute(start,kind==="mining"?"warehouse":"mining");
       return {id:"dynamic-work",name:"Рабочий путь после зарядки",equipmentId:route.equipmentId,points:destination.points,fromKind:kind,toKind:destination.zone.kind,bidirectional:true};
     }
-    function avoid(obstacle){obstacles.push(obstacle);cachedPlanners.clear();}
-    return {stations,unavailable,obstacles,validate,plan,estimate,chargeRoute,chargeHint,workRoute,cycleRoute,avoid};
+    function avoid(obstacle){obstacles.push(obstacle);learning?.hazard(obstacle);cachedPlanners.clear();}
+    return {stations,unavailable,obstacles,validate,plan,estimate,chargeRoute,chargeHint,workRoute,cycleRoute,avoid,analyze,get analysis(){return lastAnalysis??=analyze(route.points);}};
   }
   const api=Object.freeze({create,rectangle});if(typeof module!=="undefined"&&module.exports)module.exports=api;else root.TruckNavigation=api;
 })(globalThis);
