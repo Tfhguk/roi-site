@@ -145,7 +145,10 @@ function step(){
  data.qfrc_applied.fill(0);
  const traction=TruckTraction.forces(c,mass,p,target,grad,[vx,vy],data.qvel[ids.yaw.d],recovery.mode==='manual');
  let grounded=false;
- for(let i=0;i<data.ncon;i++){const contact=data.contact.get(i);grounded||=(contact.geom1===0&&supportGeoms.includes(contact.geom2))||(contact.geom2===0&&supportGeoms.includes(contact.geom1));contact.delete();}
+ // Both the vector and each borrowed contact have Embind handles. Release
+ // both; fetching data.contact repeatedly leaked a vector per contact/tick.
+ const contacts=data.contact;
+ try{for(let i=0;i<data.ncon;i++){const contact=contacts.get(i);try{grounded||=(contact.geom1===0&&supportGeoms.includes(contact.geom2))||(contact.geom2===0&&supportGeoms.includes(contact.geom1));}finally{contact.delete();}}}finally{contacts.delete();}
  if(grounded){data.qfrc_applied[ids.x.d]=traction.fx;data.qfrc_applied[ids.y.d]=traction.fy;data.qfrc_applied[ids.yaw.d]=traction.torque;}
  // Fixed support spheres stand in for a rolling track. While moving they use
  // rolling resistance; at rest the full surface coefficient supplies braking.

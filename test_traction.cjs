@@ -8,7 +8,7 @@ const weak=Traction.forces({...c,mu:.1},1.4,p,{...target,v:.09},[.8,0],[0,0],0,t
 (async()=>{
  global.wasmModule=await import('@mujoco/mujoco');require('./polygon-geometry.js');require('./setup-geometry.js');
  Object.assign(global,{ChargingModel:require('./charging-model.js'),TruckModel:Truck,TruckNavigation:require('./truck-navigation.js'),TruckLearning:require('./truck-learning.js'),TruckCommandLog:require('./truck-command-log.js'),TruckTraction:Traction,MujocoPlanning:require('./mujoco-planning.js'),MujocoScene:require('./mujoco-scene.js')});
- const grade=35,slope=Math.tan(grade*Math.PI/180);
+ const grade=35;let slope=Math.tan(grade*Math.PI/180);
  global.MetricTerrain={...require('./mujoco_sim/terrain.cjs'),generate:()=>({unit:'m',cols:101,rows:71,cells:Array.from({length:7171},(_,i)=>(i%101)*.1*slope)})};
  const box=(id,kind,x,y,w,h)=>({id,name:id,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
  const source={boundary:box('p',null,20,20,960,660).points,zones:[box('t','transport',45,45,910,610),box('c','charging',100,470,160,140)],depth:SetupGeometry.emptyDepth(),routes:[]};
@@ -28,5 +28,10 @@ const weak=Traction.forces({...c,mu:.1},1.4,p,{...target,v:.09},[.8,0],[0,0],0,t
  const slippery=await slide(.1),grippy=await slide(.5);assert(grippy<slippery*.8,'Higher physical contact friction must reduce downhill sliding');
  await request({op:'input',drive:1,turn:0});vm.runInThisContext('data.qpos[ids.z.q]+=1;engine.mj_forward(model,data);');await request({op:'advance',seconds:.02});
  assert.equal(vm.runInThisContext('data.qfrc_applied[ids.x.d]'),0,'A truck without ground contact cannot generate drive force in the air');assert.equal(vm.runInThisContext('data.qfrc_applied[ids.y.d]'),0);
+ slope=0;await request({op:'configure',source,route,config:{...c,terrainReliefM:0,maxGradeDeg:18,emergencyGradeDeg:25}});await request({op:'start'});await request({op:'manual'});await request({op:'advance',seconds:1});
+ const heapBefore=vm.runInThisContext('data.qpos.buffer.byteLength');assert(heapBefore>=16*1024*1024,'Inspect the shared WASM heap, not a copied joint vector');
+ for(let i=0;i<300;i++)await request({op:'advance',seconds:1});
+ const heapAfter=vm.runInThisContext('data.qpos.buffer.byteLength');assert(heapAfter<=heapBefore+16*1024*1024,'Contact vector handles must not leak memory over a long simulation');
  console.log('PASS traction: bounded drive, real MuJoCo friction, free downhill sliding without hidden anchors, more grip reduces sliding, 35 degree fallback starts');
+ console.log('PASS traction: 300 seconds of contact checks without WASM heap growth ('+heapBefore+' -> '+heapAfter+')');
 })().catch(e=>{console.error(e);process.exitCode=1;});
