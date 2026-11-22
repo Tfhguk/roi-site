@@ -165,9 +165,53 @@ function createRobotServer(config){
     if(number(d.lastBattery)&&number(minV)&&d.lastBattery<minV)stop(d,'BATTERY_LOW','Battery below configured threshold',true);
     if(number(d.lastBattery)&&number(maxV)&&d.lastBattery>maxV)stop(d,'BATTERY_RANGE','Battery above configured threshold',true);
     if(d.polygon&&d.mode==='AUTO'&&!poseFresh(d))stop(d,'POSE_STALE','ArUco pose timeout',true);
-    if(d.stop){const id=d.stop;d.stop=null;if(d.health)d.health.ready=false;persist(d);return {code:200,value:{epoch,stop:true,id,reason:d.fault?.code||'operator_stop'}};}
-    if(d.fault){persist(d);return {code:200,value:{epoch,command:null,hold:true,error:d.fault.code}};}
-    if(d.queue.length&&d.queue[0].expires_at<=now()){stop(d,'COMMAND_EXPIRED','Command lease expired',true);return {code:200,value:{epoch,stop:true,error:'command_expired'}};}
+    if(d.queue.length&&d.queue[0].expires_at<=now()){
+      d.queue=[];
+      d.mission=null;
+      d.issued=null;
+      d.stop=null;
+      stop(d,'COMMAND_EXPIRED','Command lease expired',true);
+      persist(d);
+      return {
+        code:200,
+        value:{
+          epoch,
+          stop:true,
+          error:'command_expired'
+        }
+      };
+    }
+
+    if(d.stop){
+      const id=d.stop;
+      d.stop=null;
+      if(d.health)d.health.ready=false;
+      persist(d);
+      return {
+        code:200,
+        value:{
+          epoch,
+          stop:true,
+          id,
+          reason:d.fault?.code||'operator_stop'
+        }
+      };
+    }
+
+    if(d.fault){
+      persist(d);
+      return {
+        code:200,
+        value:{
+          epoch,
+          command:null,
+          hold:true,
+          error:d.fault.code
+        }
+      };
+      
+    }
+    
     if(!d.queue.length&&d.mission)planNext(d);
     const resume=d.resume===true||d.recoveryPending===true;d.resume=false;
     if(d.recoveryPending&&body.ready===true&&(!number(body.error)||body.error===0))d.recoveryPending=false;
