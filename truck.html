@@ -16,5 +16,62 @@
 <dialog id="settingsDialog" aria-labelledby="settingsTitle"><form id="settingsForm"><h2 id="settingsTitle">Параметры демонстрации</h2><p>Условные значения для тестов. Изменение сбрасывает расчёт.</p><div class="fields">
 <label>Метров на единицу карты<input name="metresPerUnit" type="number" min="0.0001" max="1" step="0.0001" required></label><label>Скорость, м/с<input name="speed" type="number" min="0.01" max="0.3" step="0.01" required></label><label>Ёмкость 1S, А·ч<input name="capacityAh" type="number" min="0.1" max="5" step="0.1" required></label><label>Начальный заряд, %<input name="initialSoc" type="number" min="10" max="95" step="1" required></label><label>Груз, кг<input name="payloadKg" type="number" min="0" max="2" step="0.05" required></label><label>Масса без груза, кг<input name="massKg" type="number" min="0.1" max="10" step="0.1" required></label><label>Выезд на зарядку при, %<input name="chargeTrigger" type="number" min="10" max="80" step="1" required></label><label>Тестовая длина станции, м<input name="stationLengthM" type="number" min="0.05" max="2" step="0.01" required></label><label>Тестовая ширина станции, м<input name="stationWidthM" type="number" min="0.05" max="2" step="0.01" required></label></div><div class="dialog-actions"><button id="cancelSettings" type="button">Отмена</button><button type="submit" class="primary">Применить и сбросить</button></div></form></dialog>
 <dialog id="helpDialog" aria-labelledby="helpTitle"><h2 id="helpTitle">Непрерывная работа самосвала</h2><ol><li>Выберите полигон, нажмите «Загрузить» и выберите самосвал с рабочей траекторией. Либо используйте демонстрацию.</li><li>Нажмите «Запустить». Погрузка — 4 с, разгрузка с подъёмом и опусканием — 4 с при ×1. Цикл повторяется до остановки.</li><li>При снижении заряда машина тормозит и строит путь к станции из текущей точки с учётом глубин. После зарядки с грузом едет на склад, без груза — на добычу.</li><li>Цветная сетка — глубина. Включите «Значения» или наведите/нажмите на клетку. Красное означает препятствие.</li></ol><p>Габариты станции фиксированы в масштабе карты, по умолчанию 300×200 мм — это тестовые размеры. Ток «−» — расход, «+» — заряд. Реальное оборудование не подключено. Пауза останавливает время; «Остановить» завершает движение и расстыковку.</p><div class="dialog-actions"><button id="closeHelp" class="primary">Понятно</button></div></dialog>
-<script src="cloud-config.js"></script><script src="cloud-client.js"></script><script src="polygon-geometry.js"></script><script src="setup-geometry.js"></script><script src="charging-model.js"></script><script src="truck-model.js"></script><script src="truck-navigation.js"></script><script src="truck-learning.js"></script><script src="truck-mujoco.js"></script><script src="truck-web3d.js"></script><script src="truck.js"></script>
+<script src="cloud-config.js"></script><script src="cloud-client.js"></script><script src="polygon-geometry.js"></script><script src="setup-geometry.js"></script><script src="charging-model.js"></script><script src="truck-model.js"></script><script src="truck-navigation.js"></script><script src="truck-learning.js"></script><script src="truck-mujoco.js"></script><script src="truck-web3d.js"></script><script src="truck.js"></script><script>
+// Отправка команд на robot-server
+(function(){
+  const SERVER = "http://127.0.0.1:8766"; // адрес robot-server
+  const DEVICE = "robot-1";               // ID робота из конфига
+
+  // Перехватываем сообщения от воркера (truck-mujoco.js)
+  // Воркер уже отправляет commandLog через postMessage
+  const originalWorker = window.Worker;
+  window.Worker = function(url) {
+    const worker = new originalWorker(url);
+    const originalOnMessage = worker.onmessage;
+
+    worker.addEventListener("message", (event) => {
+      const data = event.data;
+      if (data && data.commandLog && data.commandLog.length) {
+        sendCommands(data.commandLog);
+      }
+    });
+
+    return worker;
+  };
+
+  async function sendCommands(log) {
+    // Нормализация: приводим к формату robot-server
+    const commands = log.map(c => {
+      if (c.kind) return c;
+      if (c.type === "move") return {
+        kind: c.direction === "forward" ? "forward" : "backward",
+        value: c.distance, unit: "m"
+      };
+      if (c.type === "turn") return {
+        kind: c.direction === "left" ? "left" : "right",
+        value: c.angle, unit: "deg"
+      };
+      if (c.type === "stop") return { kind: "stop" };
+      return null;
+    }).filter(Boolean);
+
+    if (!commands.length) return;
+
+    try {
+      const r = await fetch(`${SERVER}/api/robots/${DEVICE}/commands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commands })
+      });
+      if (r.ok) {
+        console.log(`Отправлено ${commands.length} команд на robot-server`);
+      } else {
+        console.warn("robot-server ответил:", r.status, await r.text());
+      }
+    } catch (e) {
+      console.warn("robot-server недоступен:", e.message);
+    }
+  }
+})();
+</script>
 </body></html>
