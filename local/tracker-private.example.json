@@ -1,0 +1,15 @@
+{
+  "camera": 0,
+  "server": "http://127.0.0.1:8766",
+  "trackerToken": "REPLACE_WITH_RANDOM_TRACKER_TOKEN",
+  "dictionary": "DICT_4X4_50",
+  "anchors": {
+    "40": [0.10, 0.10],
+    "41": [2.90, 0.10],
+    "42": [2.90, 2.90],
+    "43": [0.10, 2.90]
+  },
+  "robots": [
+    {"id":"REPLACE_WITH_EQUIPMENT_UUID","polygon_id":"REPLACE_WITH_POLYGON_UUID","marker_id":17,"yaw_offset_deg":90}
+  ]
+}
