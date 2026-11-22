@@ -52,6 +52,10 @@ jobs:
         run: node test_ar.cjs
         env:
           TEST_BROWSER_CHANNEL: chromium
+      - name: Verify ESP32 downloads and command protocol
+        run: npm run test:firmware
+        env:
+          TEST_BROWSER_CHANNEL: chromium
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site

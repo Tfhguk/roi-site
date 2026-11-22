@@ -14,6 +14,7 @@ const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
   ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2", ".wasm": "application/wasm" };
 const LIBRARIES = new Set(["node_modules/jspdf/dist/jspdf.umd.min.js",
   "node_modules/js-aruco2/src/cv.js", "node_modules/js-aruco2/src/aruco.js"]);
+const FIRMWARE = new Set(["firmware/roi_robot.ino", "firmware/hardware.h", "firmware/README.md", "robot-server.cjs"]);
 
 function localAddresses() {
   return Object.entries(os.networkInterfaces()).flatMap(([name, entries]) => entries
@@ -68,7 +69,7 @@ async function serve(request, response) {
   if (pathname === "/favicon.ico") { response.writeHead(204); response.end(); return; }
   const relative = pathname.slice(1);
   if (!pathname.startsWith("/") || /[\\\0:]/.test(relative) || relative.split("/").some(part => part.startsWith(".")) ||
-      (relative.startsWith("node_modules/") && !LIBRARIES.has(relative)) || !MIME[path.extname(relative)]) {
+      (relative.startsWith("node_modules/") && !LIBRARIES.has(relative)) || (!MIME[path.extname(relative)] && !FIRMWARE.has(relative))) {
     return send(response, 404, "Not found");
   }
   try {
@@ -78,7 +79,7 @@ async function serve(request, response) {
     if (resolved.startsWith("..") || path.isAbsolute(resolved)) return send(response, 404, "Not found");
     const stat = await fsp.stat(file);
     if (!stat.isFile()) return send(response, 404, "Not found");
-    response.writeHead(200, { "Content-Type": MIME[path.extname(file)], "Content-Length": stat.size,
+    response.writeHead(200, { "Content-Type": FIRMWARE.has(relative)?"text/plain; charset=utf-8":MIME[path.extname(file)], "Content-Length": stat.size,
       "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff" });
     if (request.method === "HEAD") return response.end();
     const input = fs.createReadStream(file);

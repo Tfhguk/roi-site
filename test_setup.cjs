@@ -252,6 +252,10 @@ async function main(){
     await page.locator('#equipmentName').fill('Самосвал Alice');await page.locator('#equipmentForm button[type=submit]').click();await page.locator('.equipment-card').waitFor();
     assert(!/aruco/i.test(await page.locator('#garage').innerText()),'Garage labels use ID only');
     const firstMachine=(await asUser(alice.id,'select * from public.equipment')).rows[0];
+    await page.locator('.equipment-card').getByRole('button',{name:'ESP32',exact:true}).click();
+    await page.getByText('Проект требует настройки оборудования.',{exact:true}).waitFor();
+    assert((await page.locator('.firmware-summary').textContent()).includes(firstMachine.id),'Firmware is bound to the selected equipment UUID');
+    await page.getByRole('button',{name:'Закрыть',exact:true}).click();
     await page.locator('.equipment-id-form input').fill('49');await page.locator('.equipment-id-form button').click();
     await page.waitForFunction(()=>document.querySelector('.equipment-id-form input').value==='49'&&!document.querySelector('main').inert);
     assert.equal((await asUser(alice.id,'select marker_id from public.equipment')).rows[0].marker_id,49);

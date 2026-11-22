@@ -6,4 +6,6 @@ dist/
 aruco-site.zip
 github-upload/
 preview/
+robot-private*.json
+.robot-local/
 problem_id_*.png
