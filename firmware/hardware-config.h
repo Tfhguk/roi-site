@@ -12,7 +12,7 @@ const float DIVIDER_TOP_OHM = 0, DIVIDER_BOTTOM_OHM = 0;
 const float BATTERY_MIN_V = 0, BATTERY_MAX_V = 0;
 // Optional DRV8833 nFAULT input, with external pull-up to 3.3 V.
 const int DRIVER_FAULT_PIN = -1;
-// 0 unconfirmed/off; 1 WS2812/NeoPixel strip on D18 (GPIO18).
-const int RGB_LAYOUT = 0;
+// 1 = WS2812/NeoPixel compatible strip, 5 V, D+ on D18, common GND.
+const int RGB_LAYOUT = 1;
 const int RGB_DATA_PIN = 18;
 const int RGB_LED_COUNT = 3; // At least 3. Split the strip into 3 colour sections.

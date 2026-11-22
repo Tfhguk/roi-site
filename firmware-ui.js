@@ -34,7 +34,7 @@
     const generate=el('button','Создать токен техники');generate.type='button';generate.onclick=()=>{values.token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');render();};
     body.append(fields,generate,el('p','Для ESP32 нужен отдельный сервер команд — GitHub Pages его не запускает. В архиве есть сервер и инструкция. Пароли остаются в памяти этого окна и в скачанном config.h.'),el('small','UUID адресует конкретную машину; ID маркера может повторяться на разных полигонах. Старые логи симуляции автоматически не воспроизводятся.'));
    }else if(tab==='signals'){
-    body.append(el('p','Лента на D18 (GPIO18), три цветовых участка по порядку светодиодов. «—» — выключен. Вариант WS2812 требует подтверждения; до этого RGB_LAYOUT = 0.'));
+    body.append(el('p','Лента 5V: D+ → D18 (GPIO18), GND общий. Три светодиода по порядку от входа. Драйвер WS2812/NeoPixel (800 кГц). «—» — выключен.'));
     const table=el('table'),head=el('tr');for(const t of ['Код','Участки 1 / 2 / 3','Значение'])head.append(el('th',t));table.append(head);
     for(const row of signals){const tr=el('tr');row.forEach((t,i)=>tr.append(el('td',t,i===0?'led-pattern':undefined)));table.append(tr);}body.append(table,el('small','Разряд определяется по АЦП и делителю. Одним напряжением нельзя надёжно определить заклинивание или обрыв мотора; без энкодеров расстояние и угол приблизительные.'));
    }else{
