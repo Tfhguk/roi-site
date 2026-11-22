@@ -6,40 +6,10 @@
  const $=id=>document.getElementById(id),host=$('scene');
  const release=document.querySelector('meta[name="roi-build"]')?.content||'dev';
  let threePromise,view,active,worker,serial=0;const pending=new Map();
- let commandLog = null;
-function rpc(message){
-  if(!worker){
-    worker = new Worker(new URL('mujoco-browser-worker.js?v='+release, document.baseURI));
-    worker.onmessage = event => {
-      if(event.data.progress){
-        $('stage').textContent = event.data.progress;
-        return;
-      }
-      // ← ПЕРЕХВАТ commandLog
-      if(event.data.commandLog){
-        commandLog = event.data.commandLog;
-        // Если есть sim — сохраняем туда
-        if (window.sim) window.sim.commandLog = event.data.commandLog;
-      }
-      const item = pending.get(event.data.id);
-      if(item){
-        pending.delete(event.data.id);
-        event.data.error ? item.reject(Error(event.data.error)) : item.resolve(event.data);
-      }
-    };
-    worker.onerror = () => {
-      for(const item of pending.values()) item.reject(Error('Не удалось запустить MuJoCo. Обновите страницу и проверьте поддержку WebAssembly.'));
-      pending.clear();
-      worker.terminate();
-      worker = null;
-    };
-  }
-  const id = ++serial;
-  return new Promise((resolve, reject) => {
-    pending.set(id, {resolve, reject});
-    worker.postMessage({...message, id});
-  });
-}
+ function rpc(message){
+  if(!worker){worker=new Worker(new URL('mujoco-browser-worker.js?v='+release,document.baseURI));worker.onmessage=event=>{if(event.data.progress){$('stage').textContent=event.data.progress;return;}const item=pending.get(event.data.id);if(item){pending.delete(event.data.id);event.data.error?item.reject(Error(event.data.error)):item.resolve(event.data);}};worker.onerror=()=>{for(const item of pending.values())item.reject(Error('Не удалось запустить MuJoCo. Обновите страницу и проверьте поддержку WebAssembly.'));pending.clear();worker.terminate();worker=null;};}
+  const id=++serial;return new Promise((resolve,reject)=>{pending.set(id,{resolve,reject});worker.postMessage({...message,id});});
+ }
  document.body.classList.add('mujoco-mode');$('map').style.visibility='hidden';$('depthReadout').hidden=true;
  document.querySelector('h1').textContent='3D симуляция';document.querySelector('.badge').textContent='MuJoCo · в браузере';
  document.querySelector('.truck-side').hidden=true;document.querySelector('.note').textContent='Высоты — в метрах. Рельеф и техника тестовые. Физика рассчитывается в браузере.';

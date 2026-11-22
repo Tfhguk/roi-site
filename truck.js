@@ -6,57 +6,6 @@
   let source=null,sim=null,navigation=null,paused=false,last=0,config={...M.defaults,...window.MuJoCoTruck?.defaults},loading=false,notice="",generation=0,mapTransform=null,hoveredCell=null;
   const fmt=(x,d=2)=>x.toLocaleString("ru-RU",{minimumFractionDigits:d,maximumFractionDigits:d});
   const box=(id,name,kind,x,y,w,h)=>({id,name,kind,points:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]});
-  // === Отправка команд на robot-server ===
-  const ROBOT_SERVER = "http://127.0.0.1:8766";
-  const ROBOT_DEVICE = "robot-1";
-  let lastSentCommandId = null;
-  let robotServerWarned = false;
-
-  function normalizeCommands(log) {
-    return log.map(c => {
-      if (c.kind) return c;
-      if (c.type === "move") return {
-        kind: c.direction === "forward" ? "forward" : "backward",
-        value: c.distance, unit: "m"
-      };
-      if (c.type === "turn") return {
-        kind: c.direction === "left" ? "left" : "right",
-        value: c.angle, unit: "deg"
-      };
-      if (c.type === "stop") return { kind: "stop" };
-      return null;
-    }).filter(Boolean);
-  }
-
-  async function sendCommandsToServer(log) {
-    if (!log || !log.length) return;
-    const lastId = log[log.length - 1]?.id;
-    if (lastId && lastId === lastSentCommandId) return;
-    lastSentCommandId = lastId;
-
-    const commands = normalizeCommands(log);
-    if (!commands.length) return;
-
-    try {
-      const r = await fetch(`${ROBOT_SERVER}/api/robots/${ROBOT_DEVICE}/commands`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commands })
-      });
-      if (r.ok) {
-        console.log(`[robot-server] Отправлено ${commands.length} команд`);
-        robotServerWarned = false;
-      } else {
-        console.warn("[robot-server] Ошибка:", r.status, await r.text());
-      }
-    } catch (e) {
-      if (!robotServerWarned) {
-        console.warn("[robot-server] Недоступен:", e.message);
-        robotServerWarned = true;
-      }
-    }
-  }
-
   function toast(message){$("toast").querySelector("span").textContent=message;$("toast").hidden=false;}
   $("toast").querySelector("button").onclick=()=>{$("toast").hidden=true;};
   function demo(){
@@ -81,7 +30,6 @@
     if($('terrainExtremity')){$('terrainExtremity').value=Math.round(config.terrainReliefM/1.5*100);$('terrainExtremityValue').textContent=$('terrainExtremity').value+'%';}
     sim?.dispose?.();
     paused=false;last=0;notice="";$("toast").hidden=true;sim=null;navigation=null;hoveredCell=null;
-    lastSentCommandId = null;
     try{
       const r=route();if(!truck())throw Error("На этом полигоне нет ваших самосвалов. Добавьте самосвал в гараже.");
       const errors=routeErrors(r);if(errors.length)throw Error(errors.join("\n"));
@@ -147,13 +95,7 @@
   $("cancelSettings").onclick=()=>$("settingsDialog").close();
   $("settingsForm").onsubmit=e=>{e.preventDefault();try{const values=Object.fromEntries([...new FormData(e.target)].map(([key,v])=>[key,Number(v)/(["initialSoc","chargeTrigger"].includes(key)?100:1)]));const candidate={...config,...values};new M.Simulation({points:[{x:0,y:0},{x:1,y:0}]},candidate);config=candidate;reset();$("settingsDialog").close();}catch(error){toast(error.message);}};
   $("download").onclick=()=>{
-    if(!sim)return;sim.sample();
-    const data={
-      ...sim.export(),
-      project:{id:source.id,name:source.name,testPaths:source.testPaths},
-      vehicle:clone(truck()),
-      commands: sim.commandLog || []  // ← команды в экспорте
-    };
+    if(!sim)return;sim.sample();const data={...sim.export(),project:{id:source.id,name:source.name,testPaths:source.testPaths},vehicle:clone(truck())};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"})),link=document.createElement("a");link.href=url;link.download="truck-test.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
   function canvas(id){const el=$(id),r=el.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);if(el.width!==Math.round(r.width*d)||el.height!==Math.round(r.height*d)){el.width=Math.max(1,Math.round(r.width*d));el.height=Math.max(1,Math.round(r.height*d));}const ctx=el.getContext("2d");ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,r.width,r.height);return {ctx,w:r.width,h:r.height};}
@@ -223,12 +165,9 @@
   function frame(now){
     const elapsed=last?Math.min(.1,(now-last)/1000):0;last=now;
     if(sim?.active&&!paused&&!document.hidden){
-      sim.advance(elapsed*Number($("speed").value));
-      // Отправка команд на robot-server после каждого шага
-      if (window.commandLog) sendCommandsToServer(window.commandLog);
-      render();
+      // A single clock advances the truck and station, including charging.
+      sim.advance(elapsed*Number($("speed").value));render();
     }
-    
     requestAnimationFrame(frame);
   }
   try{useSource(demo());requestAnimationFrame(frame);}catch(error){toast(error.message);return;}

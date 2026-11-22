@@ -9,3 +9,9 @@ preview/
 robot-private*.json
 .robot-local/
 problem_id_*.png
+local/robot-private.json
+local/tracker-private.json
+robot-runtime/
+tracker-private*.json
+.roi-oneshot-backup/
+**/config.h

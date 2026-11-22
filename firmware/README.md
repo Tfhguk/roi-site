@@ -1,54 +1,88 @@
-# ESP32: получение команд и диагностика
+# ESP32 + local dispatcher + Supabase for roi-site
 
-Это проект исходников для ESP32 DevKit V1, не готовый бинарный файл. Нужны Arduino-ESP32 3.x, ArduinoJson 7.x и Adafruit NeoPixel. Откройте roi_robot/roi_robot.ino. Заполните config.h и hardware-config.h. Пароли и токены в архиве личные: не публикуйте архив или config.h.
+## Starting point
 
-## Что уже реализовано
+This folder upgrades the already-existing roi-site project, not a separate web app.
+The ESP32 source is an Arduino sketch (NOT a compiled .bin). Arduino-ESP32 3.x,
+ArduinoJson 7.x and Adafruit NeoPixel are required.
 
-Опрос сервера с отдельным токеном техники и UUID (ID метки недостаточно — он повторяется на разных полигонах), подтверждение результата, запрет повторного выполнения последней завершённой команды, журнал незавершённой операции в NVS, остановка при потере связи, перезапуске сервера, истечении времени и ошибке адаптера. HTTP выполняется в отдельной задаче; контроль моторов не должен блокироваться сетевыми запросами. Ошибка во время движения фиксируется до перезапуска. После аварийного перезапуска незавершённая команда автоматически не повторяется. Самотестирование не запускает моторы при включении.
+- Garage: each equipment UUID has an ESP32 download button and a separate control dialog.
+- Cloud: authenticated user creates a robot_jobs record in the existing Supabase project.
+- Local PC: cloud-bridge.cjs performs authenticated HTTPS GET for queued jobs, then sends them to local robot-server.cjs.
+- Robot: ESP32 performs HTTP GET /api/robots/<UUID>/command every ~140ms over trusted Wi-Fi.
+- Local server: persists commands.json/state.json/telemetry.json/errors.jsonl separately per UUID.
+- ArUco tracker: pushes measured pose into the local server; autonomous movement requires calibrated physical meter coordinates.
 
-## Что требует оборудования
+GitHub Pages does not execute server-side code. Do not direct ESP32 to https://tfhguk.github.io/roi-site as an API endpoint.
 
-При незавершённой записи `active` в NVS восстановление должно выполняться оператором после осмотра и остановки машины: очистить журнал пространства `roi_robot` отдельной сервисной программой (`Preferences.begin("roi_robot", false); Preferences.clear(); Preferences.end();`), затем снова загрузить основной проект. Обычный перезапуск такую ошибку не снимает. После программной ошибки без незавершённой записи достаточно устранить причину и перезапустить плату.
+## Electrical connections
 
-Реализован DRV8833: AIN1/AIN2 = GPIO25/26 (левый мотор), BIN1/BIN2 = GPIO27/12 (правый). PWM 18 кГц, 8 бит. hardwareStop выключает оба входа каждого моста; инициализация не вращает моторы. При зеркальной установке поменяйте MOTOR_SIGN соответствующего мотора. nSLEEP драйвера должен быть подключён согласно схеме модуля; при низком nSLEEP моторы не включатся. Не меняйте перечисленные GPIO без пересмотра проверки выводов. GPIO12 — загрузочный вывод ESP32: схема драйвера не должна подтягивать его вверх во время сброса.
+DRV8833 AIN1/AIN2=GPIO25/26, BIN1/BIN2=GPIO27/12.
+GPIO12 is a strapping pin: make sure the motor carrier does not pull it HIGH at boot.
+WS2812B 3 pixels on GPIO18 with a separate 5V supply and common ground.
+ADC1 GPIO34 for voltage via a divider; example 100k upper / 47k lower for a calibrated 2S battery.
+The ADC input MUST NOT receive raw battery voltage or voltage above its safe range.
+The DRV8833 nSLEEP pin must be in a valid enabled state. nFAULT is optional with pullup to 3.3V.
 
-Данные об энкодерах пока не предоставлены. Поэтому есть только приблизительное выполнение по времени: явно установите ALLOW_TIMED_MOTION=true, измерьте METRES_PER_SECOND и DEGREES_PER_SECOND при выбранном MOTOR_PWM. Нулевые/неизвестные параметры блокируют движение. Напряжение, нагрузка, грунт и проскальзывание меняют точность; выполненная команда означает завершение рассчитанного времени, а не подтверждённые метры/градусы. Для точной обратной связи потребуется адаптер энкодеров. Нельзя считать измерение напряжения проверкой исправности механики.
+The provided hardware-config.2s.example.h is NOT automatically activated. Hardware calibration
+remains mandatory: original hardware-config.h sets ALLOW_TIMED_MOTION=false and zero speeds.
+Only after wiring, measuring battery voltage with a multimeter and measuring real motion per PWM
+should you set the limits, motor signs, distance/s and angle/s and enable time-based movement.
+The local model's linear_m_s and angular_rad_s must reflect the same physical calibration.
+Set model.calibrated=true only after these measurements. Until then autonomous motion is rejected.
+Without encoders, distance/angle are approximate; ArUco confirms each autonomous segment.
 
-Измерение питания обязательно: задайте BATTERY_ADC_PIN (ADC1: 32/33/34/35/36/39), DIVIDER_TOP_OHM (от аккумулятора до АЦП), DIVIDER_BOTTOM_OHM (от АЦП до GND), BATTERY_MIN_V и BATTERY_MAX_V по аккумулятору. Общая земля обязательна. Аккумулятор напрямую к GPIO не подключать. Подберите делитель так, чтобы измеряемый максимум был в диапазоне АЦП; программа считает измерения ниже 50 и выше 3050 мВ некорректными. Напряжение усредняется по 8 отсчётам каждые 100 мс и передаётся серверу как battery_v. Пока GPIO, делитель и аккумулятор неизвестны, они не выдуманы и запуск заблокирован. Верхний предел конфигурации 10.8 В соответствует питанию DRV8833; для иной схемы питания требуется её проверка.
+## Installation and cloud link
 
-Дополнительный DRIVER_FAULT_PIN читает nFAULT DRV8833 с внешней подтяжкой к 3.3 В. Без него перегрузка/перегрев драйвера не различаются программой. Только по напряжению нельзя надёжно обнаружить заклинивание, сломанный редуктор или обрыв мотора. Программная остановка не заменяет аппаратное снятие питания приводов.
+1. Apply `supabase/robot-cloud-migration.sql` in the EXISTING Supabase project.
+2. Use the garage's actual equipment UUID, polygon UUID, and ArUco marker ID in the private JSON examples.
+3. Generate a random 32-byte operator token and a separate token per ESP32. Keep them private.
+4. Create `local/robot-private.json` from the example. Populate arena polygon measured in METERS.
+5. Configure `cloud.url`, public publishableKey, and a regular owner's Supabase refreshToken.
+   Never use the service_role or secret key. The bridge refreshes the owner's access token.
+6. Run `node robot-server.cjs local/robot-private.json 0.0.0.0 8766` on the local computer.
+7. Open the garage, download the personal sketch and use Arduino IDE or arduino-cli to flash.
+   Its SERVER_URL must be the computer's LAN IP, not localhost. Its DEVICE_TOKEN must match
+   the corresponding device entry in robot-private.json.
+8. Wire and calibrate the overhead camera and four known fixed marker positions using
+   `local/tracker-private.json`. Then `python local/aruco-tracker.py local/tracker-private.json`.
+9. Open the garage's "Управление" dialog. Try STOP and status with motors disconnected first.
+10. Only then test 2 cm motion in a lifted-wheel fixture and on a guarded floor.
 
-## Три светодиода
+The refresh token is sensitive. Prefer a separate limited robot operator account that owns the
+relevant equipment; never paste the token into public Git files. The local runtime directory,
+robot-private.json and tracker-private.json must remain outside version control.
 
-Лента: 5V → питание 5 В, GND → общая земля, D+ → D18 (GPIO18). Подготовлен и включён драйвер WS2812/NeoPixel, GRB/800 кГц: RGB_LAYOUT=1. Маркировка микросхемы не указана; если фактический протокол ленты иной, требуется другой адаптер. RGB_LED_COUNT=3 соответствует трём светодиодам по порядку от входа. При увеличении длины (до 300) лента делится на три последовательных участка. На обычную аналоговую RGB-ленту без входа данных этот код не рассчитан. «—» ниже означает выключен. D18 является только сигнальным выводом и не питает ленту. Требуемый уровень сигнала данных и преобразователь 3.3→5 В определяются спецификацией самой ленты.
+## Endpoints
 
-| Участок 1 | Участок 2 | Участок 3 | Смысл |
-|---|---|---|---|
-| — | — | — | Нет индикации; не подтверждает исправность |
-| Зелёный | Зелёный | Зелёный | Готов к командам, код 1 |
-| Синий | Синий | Синий | Начальная проверка, код 2 |
-| Голубой | Голубой | Голубой | Движение, код 3 |
-| Красный | — | — | Нет связи, код 4 |
-| Красный | Красный | — | Низкое питание, код 5 |
-| Красный | Жёлтый | — | Превышено время команды, код 6 |
-| Красный | Красный | Красный | Сбой / остановка / настройки отсутствуют, код 7 |
-| Красный | Фиолетовый | — | Измерение напряжения некорректно / выше предела, код 8 |
-| Красный | Жёлтый | Жёлтый | nFAULT драйвера, код 9 |
+Device token: GET /api/robots/:uuid/command?boot=X&ready=1&error=0&battery_v=7.5,
+POST /api/robots/:uuid/telemetry, POST /api/robots/:uuid/error, POST /api/robots/:uuid/ack.
+Operator token: POST /commands, /mission, /manual, /stop, /reset, GET /status.
+Tracker token: POST /pose; all coordinates are in meters and heading in radians.
+Prior POST /poll remains supported for compatibility.
 
-## Сервер
+Possible mission actions are MOVE_TO, STOP and DUMP. DUMP is intentionally REJECTED until
+an independent dumper actuator and its hardware adapter are provided. Driving motors are not
+silently repurposed as a bucket actuator. Manual control needs explicit operator confirmation.
 
-Использованы первичные спецификации: [DRV8833](https://www.ti.com/lit/ds/symlink/drv8833.pdf), [GPIO](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/gpio.html), [LEDC/PWM](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/ledc.html), [ADC](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/adc.html), [Adafruit NeoPixel](https://github.com/adafruit/Adafruit_NeoPixel). Сетевой протокол и загрузка проекта проверяются автоматически. Компиляция под плату и проверка физических приводов пока не выполнялись.
+## Emergency behavior
 
-GitHub Pages хранит файлы сайта и не запускает очередь роботов. В архив включён server/robot-server.cjs для Node.js. Создайте рядом приватный robot-private.json:
+Unknown/out-of-bounds position, model divergence, ArUco timeout, low or invalid battery voltage,
+DRV8833 nFAULT and Wi-Fi outage stop the drive. A server or MCU reboot does not resume an
+unfinished command. A fresh inspection and operator reset are needed for latched faults.
+No software stop guarantees zero stopping distance. Use a physical power-interrupt E-stop,
+protective arena, and real sensors for unattended operation.
 
-```json
-{"operatorToken":"ОТДЕЛЬНЫЙ_СЛУЧАЙНЫЙ_ТОКЕН_ОПЕРАТОРА","devices":[{"id":"UUID_ИЗ_CONFIG_H","token":"СЛУЧАЙНЫЙ_ТОКЕН_ЭТОЙ_МАШИНЫ"}]}
-```
+LED patterns: green-green-green ready; cyan-cyan-cyan driving; red blinking network;
+red-red blinking low voltage; red-yellow timer; red-purple ADC fault;
+red-yellow-yellow driver; all-red blinking boundary; alternating reds model;
+purple blink ArUco missing; all-red blinking otherwise.
 
-Запуск на компьютере в сети роботов: `node server/robot-server.cjs robot-private.json 0.0.0.0 8766`. Без адреса сервер слушает только 127.0.0.1. В config.h укажите IP этого компьютера, не localhost и не адрес GitHub Pages. Этот вариант использует HTTP в доверенной тестовой сети; HTTPS с проверкой сертификата и размещение сервера требуют отдельного подключения. Прошивка не отключает проверку TLS и не принимает HTTPS в этом адаптере.
+## Development checks
 
-Оператор отправляет POST `/api/robots/UUID/commands` с заголовком Authorization: Bearer OPERATOR_TOKEN и JSON `{"commands":[{"kind":"forward","unit":"m","value":0.1}]}`. Сначала устройство должно сообщить готовность. Допустимы forward/backward (не более 0.25 м), left/right (не более 45°), stop. До 100 команд, весь пакет проверяется до постановки в очередь. Занятая очередь возвращает 409. POST `/api/robots/UUID/stop` очищает очередь и передаёт остановку при следующем опросе. GET `/api/robots/UUID/status` показывает диагностику и результаты. Все три операции используют токен оператора; прошивка его не получает.
+`node --test test_oneshot.cjs`
+`npm run build`
+`npm run test:firmware`
 
-Устройство использует POST poll/ack с собственным токеном. Поля poll: boot, ready, error; ответ: epoch, command либо stop. ACK: epoch, boot, id, status=done/failed. Перезагрузка устройства сбрасывает очередь; перезапуск сервера меняет epoch. Очередь оперативная и после рестарта пуста.
-
-Формат числовых движений совпадает с kind/unit/value журналов симуляции. Но логи являются историей: они могут содержать измеренные ручные перемещения, повторные повороты, попытки выезда, погрузку и зарядку. Они НЕ транслируются в реальный робот автоматически. Перевод текущего плана в новые команды нужно подключать после проверки привода и его калибровки. Для зарядной станции, погрузчика и кузова самосвала нужны отдельные исполнительные адаптеры; этот шаблон не имитирует их выполнение.
+Tests validate the local protocol and safety state transitions, not a compiled Arduino binary,
+camera calibration, physical DRV8833 direction, or real emergency stopping distance.

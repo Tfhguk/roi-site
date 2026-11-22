@@ -22,7 +22,8 @@
     "test:charging": "node test_charging.cjs",
     "test:truck": "node test_truck.cjs",
     "test:ar": "node test_ar.cjs",
-    "test:firmware": "node test_firmware.cjs"
+    "test:firmware": "node test_firmware.cjs",
+    "test:oneshot": "node --test test_oneshot.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

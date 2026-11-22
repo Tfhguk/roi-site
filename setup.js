@@ -349,7 +349,8 @@
       });};
       const info=document.createElement("div");info.className="equipment-info";info.append(title,paragraph(role.label,"muted"),idForm);
       const actions=document.createElement("div");actions.className="equipment-actions";actions.append(
-        button("ESP32",()=>RobotFirmware.open(item)),
+        button("Загрузить программу ESP32",()=>RobotFirmware.open(item)),
+         button("Управление",()=>RobotCloud.open(item)),
         button("Скачать SVG",()=>SetupExport.download("equipment-"+item.marker_id+".svg",ArucoMarker.toSVG(item.marker_id,800),"image/svg+xml")),
         button("Удалить",async()=>{await AppCloud.rpc("delete_equipment",{p_id:item.id});await refreshEquipment();profile=await AppCloud.me();ws=await AppCloud.workspace();render();},"danger"));
       card.append(image,info,actions);
