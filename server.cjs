@@ -14,7 +14,7 @@ const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; cha
   ".ttf": "font/ttf", ".woff": "font/woff", ".woff2": "font/woff2", ".wasm": "application/wasm" };
 const LIBRARIES = new Set(["node_modules/jspdf/dist/jspdf.umd.min.js",
   "node_modules/js-aruco2/src/cv.js", "node_modules/js-aruco2/src/aruco.js"]);
-const FIRMWARE = new Set(["firmware/roi_robot.ino", "firmware/hardware.h", "firmware/README.md", "robot-server.cjs"]);
+const FIRMWARE = new Set(["firmware/roi_robot.ino", "firmware/hardware.h", "firmware/hardware-config.h", "firmware/indicators.h", "firmware/README.md", "robot-server.cjs"]);
 
 function localAddresses() {
   return Object.entries(os.networkInterfaces()).flatMap(([name, entries]) => entries

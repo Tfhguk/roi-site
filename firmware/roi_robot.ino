@@ -1,15 +1,17 @@
-// Arduino-ESP32 3.x + ArduinoJson 7.x. Hardware adapter is deliberately disabled.
+// Arduino-ESP32 3.x + ArduinoJson 7.x + Adafruit NeoPixel.
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <atomic>
 #include "config.h"
 #include "hardware.h"
+#include "indicators.h"
 
 enum Signal { SELFTEST=2, READY=1, RUNNING=3, NETWORK=4, BATTERY=5, STALL=6, FAULT=7 };
-volatile uint32_t lastContact=0;
-volatile bool networkReady=false;
-volatile int failure=0;
+std::atomic<uint32_t> lastContact{0};
+std::atomic<bool> networkReady{false};
+std::atomic<int> failure{0};
 QueueHandle_t incoming,outgoing;
 Preferences journal;
 struct Order {char id[48];char epoch[48];char kind[16];float value;};
@@ -20,7 +22,6 @@ bool completedOK=false;
 Order current;
 uint32_t started=0;
 
-void indicate(int code){for(int i=0;i<3;i++)if(LED_PINS[i]>=0)digitalWrite(LED_PINS[i],(code>>(2-i))&1);}
 void fail(int code){hardwareStop();active=false;failure=code;}
 bool post(const String& endpoint,const String& body,String& response){
  // Local-network HTTP only in this initial adapter. No TLS verification bypass.
@@ -37,7 +38,7 @@ void networking(void*){
   if(!hasResult)hasResult=xQueueReceive(outgoing,&pendingResult,0)==pdTRUE;
   String response,body;JsonDocument payload;
   if(hasResult){payload["epoch"]=pendingResult.order.epoch;payload["boot"]=boot;payload["id"]=pendingResult.order.id;payload["status"]=pendingResult.ok?"done":"failed";serializeJson(payload,body);if(post("ack",body,response))hasResult=false;}
-  payload.clear();body="";payload["boot"]=boot;payload["ready"]=configured&&!failure&&!hasResult;payload["error"]=failure;payload["adapter_configured"]=configured;serializeJson(payload,body);
+  payload.clear();body="";payload["boot"]=boot;payload["ready"]=configured&&!failure.load()&&!hasResult;payload["error"]=failure.load();payload["adapter_configured"]=configured;payload["battery_v"]=hardwareVoltage();payload["motion_feedback"]="calibrated_time_not_encoders";serializeJson(payload,body);
   if(post("poll",body,response)){
    JsonDocument reply;if(deserializeJson(reply,response)||!reply["epoch"].is<const char*>()){networkReady=false;failure=FAULT;}
    else{
@@ -65,16 +66,16 @@ void finish(bool ok){hardwareStop();active=false;
  completed=current.id;completedOK=ok;Result r={current,ok};if(xQueueSend(outgoing,&r,0)!=pdTRUE)failure=FAULT;}
 void setup(){
  Serial.begin(115200);boot=String((uint32_t)esp_random(),HEX)+String((uint32_t)esp_random(),HEX);
- for(int pin:LED_PINS)if(pin>=0){pinMode(pin,OUTPUT);digitalWrite(pin,LOW);}indicate(SELFTEST);
+ indicatorsBegin();indicate(SELFTEST);
  if(!journal.begin("roi_robot",false))failure=FAULT;completed=journal.getString("completed","");completedOK=journal.getBool("result_ok",false);if(journal.getString("active","").length())failure=FAULT;
  configured=hardwareBegin();hardwareStop();if(!configured)failure=FAULT;
  incoming=xQueueCreate(1,sizeof(Order));outgoing=xQueueCreate(4,sizeof(Result));if(!incoming||!outgoing){failure=FAULT;return;}
- WiFi.mode(WIFI_STA);WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
+ WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
  xTaskCreate(networking,"robot-network",8192,nullptr,1,nullptr);
 }
 void loop(){
  // This control loop never waits for HTTP. A lost link cannot keep motors running.
- if(!configured||failure){hardwareStop();if(active)finish(false);indicate(failure?failure:FAULT);delay(5);return;}
+ if(!configured||failure.load()){hardwareStop();if(active)finish(false);indicate(failure.load()?failure.load():FAULT);delay(5);return;}
  int fault=hardwareSelfTest();if(fault){if(active)finish(false);fail(fault);return;}
  if(!networkReady||millis()-lastContact>1500){if(active){finish(false);fail(NETWORK);}hardwareStop();indicate(NETWORK);delay(5);return;}
  if(!active){Order order;if(xQueueReceive(incoming,&order,0)==pdTRUE){
