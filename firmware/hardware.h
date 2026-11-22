@@ -12,12 +12,12 @@ inline bool hardwareBegin(){
  const int expected[4]={25,26,27,12};
  for(int i=0;i<4;i++)if(MOTOR_PINS[i]!=expected[i])return false;
  for(int pin:MOTOR_PINS){pinMode(pin,OUTPUT);digitalWrite(pin,LOW);}motorOutputs=true;hardwareStop();
- if(RGB_LAYOUT!=1||RGB_PINS[0]!=2||RGB_PINS[1]!=4||RGB_PINS[2]!=19)return false;
+ if(RGB_LAYOUT!=1||RGB_DATA_PIN!=18||RGB_LED_COUNT<3||RGB_LED_COUNT>300)return false;
  bool adc=BATTERY_ADC_PIN==32||BATTERY_ADC_PIN==33||BATTERY_ADC_PIN==34||BATTERY_ADC_PIN==35||BATTERY_ADC_PIN==36||BATTERY_ADC_PIN==39;
  if(!adc||!isfinite(DIVIDER_TOP_OHM)||!isfinite(DIVIDER_BOTTOM_OHM)||DIVIDER_TOP_OHM<=0||DIVIDER_BOTTOM_OHM<=0||!isfinite(BATTERY_MIN_V)||!isfinite(BATTERY_MAX_V)||BATTERY_MIN_V<=0||BATTERY_MAX_V<=BATTERY_MIN_V||BATTERY_MAX_V>10.8f)return false;
  if(!ALLOW_TIMED_MOTION||!isfinite(METRES_PER_SECOND)||!isfinite(DEGREES_PER_SECOND)||METRES_PER_SECOND<=0||DEGREES_PER_SECOND<=0||MOTOR_PWM<=0||MOTOR_PWM>255)return false;
  for(int i=0;i<2;i++)if(MOTOR_SIGN[i]!=1&&MOTOR_SIGN[i]!=-1)return false;
- if(DRIVER_FAULT_PIN>=0){const int p=DRIVER_FAULT_PIN;if(!(p==13||p==14||p==16||p==17||p==18||p==21||p==22||p==23||p==32||p==33||p==34||p==35||p==36||p==39)||p==BATTERY_ADC_PIN)return false;pinMode(p,INPUT);}
+ if(DRIVER_FAULT_PIN>=0){const int p=DRIVER_FAULT_PIN;if(!(p==13||p==14||p==16||p==17||p==21||p==22||p==23||p==32||p==33||p==34||p==35||p==36||p==39)||p==BATTERY_ADC_PIN)return false;pinMode(p,INPUT);}
  analogReadResolution(12);analogSetPinAttenuation(BATTERY_ADC_PIN,ADC_11db);
  int attached=0;for(int pin:MOTOR_PINS){if(!ledcAttach(pin,18000,8)){for(int i=0;i<attached;i++)ledcDetach(MOTOR_PINS[i]);for(int p:MOTOR_PINS){pinMode(p,OUTPUT);digitalWrite(p,LOW);}return false;}attached++;ledcWrite(pin,0);}motorPwm=true;
  return true;
