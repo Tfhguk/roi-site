@@ -1,11 +1,17 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http'),{chromium}=require('playwright'),{createRobotServer}=require('./robot-server.cjs');
 const listen=server=>new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port))),close=server=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);});
 async function protocol(){
- let clock=Date.now();const server=createRobotServer({now:()=>clock,operatorToken:'operator',devices:[{id:'robot-a',token:'device-a'},{id:'robot-b',token:'device-b'}]}),base=await listen(server);
+ let clock=Date.now();
+ const arena={polygon:[{x:0,y:0},{x:2,y:0},{x:2,y:2},{x:0,y:2}]};
+ const model={calibrated:true,linear_m_s:.1,angular_rad_s:.6,track_width_m:.15,wheel_radius_m:.03,max_wheel_rad_s:15,robot_radius_m:.08,max_step_m:.1,max_turn_rad:Math.PI/4};
+ const server=createRobotServer({now:()=>clock,operatorToken:'operator',arena,devices:[{id:'robot-a',token:'device-a',polygon_id:'polygon-a',model},{id:'robot-b',token:'device-b',polygon_id:'polygon-b',model}]}),base=await listen(server);
+ let pose={x:1,y:1,heading:0};
  async function request(action,data,token='operator',device='robot-a'){
   const r=await fetch(base+'/api/robots/'+device+'/'+action,{method:data===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});return {status:r.status,body:await r.json()};
  }
- const poll=(boot='boot1',ready=true)=>request('poll',{boot,ready,error:0},'device-a');
+ const syncPose=()=>request('pose',{...pose,polygon_id:'polygon-a',marker_id:1},'operator');
+ const poll=async(boot='boot1',ready=true)=>{clock+=1;await syncPose();return request('poll',{boot,ready,error:0},'device-a');};
+ const applyPose=command=>{if(command.kind==='forward'||command.kind==='backward'){const d=command.value*(command.kind==='forward'?1:-1);pose.x+=d*Math.cos(pose.heading);pose.y+=d*Math.sin(pose.heading);}else if(command.kind==='left'||command.kind==='right')pose.heading+= (command.kind==='left'?1:-1)*command.value*Math.PI/180;};
  const move={kind:'forward',unit:'m',value:.1};
  try {
   // 1. Проверка авторизации и изоляции устройств
@@ -56,74 +62,31 @@ async function protocol(){
     422
   );
 
-  // 3. Добавление команд и повторная доставка
-  const queued = await request('commands', {
-    commands:[move,{kind:'right',unit:'deg',value:30}]
-  });
-
+  // 3. Добавление одной команды и повторная доставка. В геозоне
+  // диспетчер выдаёт только один сегмент до подтверждения новой ArUco-позы.
+  const queued = await request('commands', {commands:[move]});
   assert.equal(queued.status,201);
-  assert.notEqual(queued.body.ids[0],queued.body.ids[1]);
+  assert.equal(queued.body.ids.length,1);
 
   const command = (await poll()).body.command;
   assert.equal(command.id,queued.body.ids[0]);
+  assert.deepEqual((await poll()).body.command,command,'Unacknowledged delivery keeps same id');
+  assert.equal((await request('commands',{commands:[move]})).status,409);
 
-  assert.deepEqual(
-    (await poll()).body.command,
-    command,
-    'Unacknowledged delivery keeps same id'
-  );
+  // 4. Проверка ACK и подтверждение новой позы перед следующим сегментом
+  assert.equal((await request('ack',{epoch:'old',boot:'boot1',id:command.id,status:'done'},'device-a')).status,409);
+  const ack={epoch,boot:'boot1',id:command.id,status:'done'};
+  assert.equal((await request('ack',ack,'device-a')).status,200);
+  assert.equal((await request('ack',ack,'device-a')).status,200);
+  applyPose(command);
+  assert.equal((await poll()).body.command,null,'Next motion waits for fresh pose feedback');
 
-  assert.equal(
-    (await request('commands',{commands:[move]})).status,
-    409
-  );
-
-  // 4. Проверка ACK
-  assert.equal(
-    (await request('ack',{
-      epoch:'old',
-      boot:'boot1',
-      id:command.id,
-      status:'done'
-    },'device-a')).status,
-    409
-  );
-
-  const ack = {
-    epoch,
-    boot:'boot1',
-    id:command.id,
-    status:'done'
-  };
-
-  assert.equal(
-    (await request('ack',ack,'device-a')).status,
-    200
-  );
-
-  assert.equal(
-    (await request('ack',ack,'device-a')).status,
-    200
-  );
-
-  assert.equal(
-    (await poll()).body.command.id,
-    queued.body.ids[1]
-  );
-
-  assert.equal(
-    (await request('ack',{
-      ...ack,
-      id:queued.body.ids[1],
-      status:'failed'
-    },'device-a')).status,
-    200
-  );
-
-  assert.equal(
-    (await request('status')).body.queue.length,
-    0
-  );
+  const secondQueued=await request('commands',{commands:[{kind:'right',unit:'deg',value:30}]});
+  assert.equal(secondQueued.status,201);
+  const secondCommand=(await poll()).body.command;
+  assert.equal(secondCommand.id,secondQueued.body.ids[0]);
+  assert.equal((await request('ack',{...ack,id:secondCommand.id,status:'failed'},'device-a')).status,200);
+  assert.equal((await request('status')).body.queue.length,0);
 
   // 5. Перезапуск устройства (смена boot)
   await poll();
@@ -151,7 +114,6 @@ async function protocol(){
     commands:[move]
   });
 
-  console.log('BEFORE STOP:', beforeStop.status, beforeStop.body);
   console.log('PASS: beforeStop');
   assert.equal(
     (await request('stop',{})).status,
@@ -188,7 +150,6 @@ async function protocol(){
   await poll('boot2',true);
 
   const reset = await request('reset',{confirm:true});
-  console.log('RESET RESPONSE:',reset);
 
   assert.equal(reset.status,200);
 
@@ -201,16 +162,11 @@ async function protocol(){
   );
 
   // 10. Проверка истечения команды
-  console.log('STATUS BEFORE EXPIRY TEST:',
-  (await request('status')).body);
-
 const issueResult = await request('commands',{
   commands:[move]
 });
 
-  console.log('ISSUE RESULT:',issueResult);
   assert.equal(issueResult.status,201);
-  console.log('PASS: issueResult');
   assert.equal(
     (await request('status')).body.queue.length,
     1
@@ -240,8 +196,6 @@ const resetAfterExpiry = await request('reset',{
   confirm:true
 });
 
-console.log('RESET AFTER EXPIRY:',resetAfterExpiry);
-
 assert.equal(resetAfterExpiry.status,200);
 
 await poll('boot2',true);
@@ -254,16 +208,10 @@ assert.equal(
 // 11. Проверка задержанной доставки
   await poll('boot2',true);
 
-  console.log('STATUS BEFORE DELAYED COMMAND:',
-  (await request('status')).body);
-  
 const delayedCommand = await request('commands',{
   commands:[move]
 });
-  console.log('PASS: delayedCommand');
-console.log('DELAYED COMMAND RESULT:',delayedCommand);
-
-  console.log('DELAYED STATUS:', delayedCommand.status);
+console.log('DELAYED STATUS:', delayedCommand.status);
 console.log('DELAYED BODY:', delayedCommand.body);
 console.log('ROBOT STATUS:', (await request('status')).body);
   clock += 1501;
