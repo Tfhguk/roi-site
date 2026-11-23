@@ -25,7 +25,8 @@
     <div id="notice" class="notice" role="status" hidden></div>
     <section class="panel">
       <h2>1. Роботы из твоего гаража</h2>
-      <p class="muted">Список загружается из Supabase под твоей учётной записью. Отметь роботов, которых нужно подключить. ArUco ID можно скорректировать здесь.</p>
+      <p class="muted">Показывается только техника активного полигона, выбранного в ROI. Машины из других гаражей не попадут в этот список. ArUco ID можно скорректировать здесь.</p>
+      <p id="polygon-context" class="chip polygon-context" aria-live="polite">Определяем активный полигон…</p>
       <div class="toolbar"><button id="reload" type="button">Обновить гараж</button><span id="garage-state" class="muted">Загрузка…</span></div>
       <div id="robots" class="robot-list"></div>
       <details>
@@ -33,7 +34,7 @@
         <div class="fields three">
           <label>UUID техники<input id="manual-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label>
           <label>ArUco ID<input id="manual-marker" type="number" min="0" max="9999"></label>
-          <label>UUID полигона (необязательно)<input id="manual-polygon" placeholder="UUID полигона"></label>
+          <label>Активный полигон<input id="manual-polygon" placeholder="Определяется автоматически" readonly></label>
         </div>
         <button id="add-manual" type="button">Добавить в список</button>
       </details>
