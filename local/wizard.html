@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Куборги · Настройка роботов</title>
+<style>
+:root{color-scheme:dark;font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;background:#111820;color:#e9eef2}*{box-sizing:border-box}body{margin:0;padding:26px 18px 90px}
+main{width:min(880px,100%);margin:auto}header{display:flex;align-items:baseline;gap:15px;flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:27px;margin:0;font-weight:700;letter-spacing:-.035em}small,.muted{color:#94a8b7}.eyebrow{letter-spacing:.14em;font-size:11px;text-transform:uppercase;color:#e2ba58;font-weight:700}
+section{border:1px solid #3c4654;background:#1d2731;border-radius:13px;padding:21px;margin:16px 0;box-shadow:0 4px 18px #0a101433}
+.steps{display:flex;gap:7px;align-items:center;color:#a4b4bf;font-size:12px;flex-wrap:wrap}.steps strong{color:#e4bc63}
+h2{font-size:18px;margin:0 0 9px;letter-spacing:-.02em}p{margin:8px 0 15px}label{display:block;color:#b8c8d2;font-size:13px;margin:12px 0 6px}
+input,select{display:block;width:100%;background:#0d141b;color:#f2f5f7;border:1px solid #647482;border-radius:8px;padding:10px 11px;font:inherit}
+input:focus{outline:2px solid #d4af55;outline-offset:1px}input[type=checkbox]{width:auto;display:inline-block;accent-color:#e6b74d;margin-right:8px}
+.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.grow{flex:1;min-width:200px}.half{flex:1;min-width:170px}
+button,.button-link{border:1px solid #8a9ba8;background:#293848;color:#f5f8fa;padding:10px 15px;border-radius:9px;font-size:14px;cursor:pointer;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+button:hover,.button-link:hover{background:#354659}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:#e0b55d;color:#17202a;border-color:#e0b55d}button.primary:hover{background:#f2cd75}.secondary{background:transparent;border-color:#526374}button.compact{padding:5px 9px;font-size:12px}
+.notice{padding:11px 14px;border:1px solid #647482;background:#18232e;border-radius:8px;color:#dbe6eb}.error{border-color:#c15e6a;color:#ffc0c9;background:#351e26}.success{border-color:#478363;color:#b6e9c5;background:#182c24}.hidden{display:none!important}
+.robot{display:grid;grid-template-columns:24px 1fr auto;gap:12px;border:1px solid #435361;border-radius:9px;padding:12px;margin-top:9px;align-items:start}
+.robot strong{font-size:14px}.robot .muted{font-size:12px;overflow-wrap:anywhere}.robot input{max-width:230px;margin:3px 0 0}
+.token{font-family:ui-monospace,Consolas,monospace;color:#f4ca77;letter-spacing:.02em;overflow-wrap:anywhere;font-size:11px;max-width:270px;display:block}
+.divider{border-top:1px solid #364652;margin:18px 0}.chip{display:inline-block;background:#233a33;border-radius:50px;color:#b2e0c3;padding:3px 9px;font-size:12px}
+a{color:#edc77d}.tip{font-size:12px;color:#aec0ca}summary{cursor:pointer;color:#debe80}details{margin:14px 0}code{background:#101920;color:#e4c77f;border-radius:5px;padding:1px 5px}
+@media(max-width:580px){section{padding:15px}.robot{grid-template-columns:24px 1fr}.robot .tools{grid-column:2}}
+</style></head><body><main>
+<header><div><div class="eyebrow">CUBORG / ГАРАЖ</div><h1>Подключение настоящих роботов</h1></div><span class="chip">Локальный компьютер</span></header>
+<p class="muted">Один мастер вместо шести ручных токенов. Работает только на этом компьютере, не отправляет секреты в GitHub.</p>
+<div class="steps"><strong>1. Supabase</strong> → <strong>2. Выбор техники</strong> → <strong>3. Готовая прошивка</strong> → 4. Калибровка</div>
+<div id="alert" class="notice hidden" role="status"></div>
+<section>
+<h2>1. Связать с существующим Supabase</h2>
+<p class="muted">Если уже настроил Supabase для сайта, адрес и публичный ключ могут заполниться сами. Пароль аккаунта нужен только для входа, он не сохраняется.</p>
+<div class="row"><div class="grow"><label for="sb-url">Адрес проекта</label><input id="sb-url" placeholder="https://xxxxx.supabase.co" autocomplete="off"></div><div class="grow"><label for="sb-key">Публичный ключ (Publishable)</label><input id="sb-key" placeholder="sb_publishable_..." autocomplete="off"></div></div>
+<p class="tip">Найти: <a href="https://supabase.com/dashboard/projects" target="_blank" rel="noopener noreferrer">Supabase Dashboard</a> → проект → <b>Connect</b>. Либо <b>Project Settings → API Keys</b>. <b>Secret / service_role сюда не вставлять.</b></p>
+<div class="row"><div class="grow"><label for="email">Почта аккаунта «Гаража»</label><input id="email" type="email" placeholder="you@example.com" autocomplete="username"></div><div class="grow"><label for="password">Пароль аккаунта</label><input id="password" type="password" placeholder="Не сохраняется" autocomplete="current-password"></div></div>
+<div class="row"><button class="primary" id="login">Подключить Supabase</button><span class="muted" id="login-state">Не подключен</span></div>
+<details><summary>Войти кодом из письма вместо пароля</summary><p class="tip">Для числового кода необходимо настроить email OTP в шаблоне писем Supabase. Если приходит только ссылка, используйте вход по паролю.</p>
+<div class="row"><button id="send-otp">Отправить код</button><div class="grow"><label for="otp">Код из письма</label><input id="otp" placeholder="Введите код" inputmode="numeric"></div><button id="verify-otp">Подтвердить код</button></div></details>
+</section>
+<section>
+<h2>2. Выбрать технику</h2>
+<p class="muted">Роботы загружаются из твоего «Гаража». UUID техники и идентификатор полигона вставляются автоматически. Все локальные токены создаются сами.</p>
+<div class="row"><button id="load" class="primary">Загрузить технику из «Гаража»</button><button id="local-robots">Показать уже настроенных</button></div>
+<div id="robots"></div>
+<details><summary>Без Supabase: добавить робота вручную (только локальная работа)</summary><div class="row"><div class="grow"><label for="manual-id">UUID техники из «Гаража»</label><input id="manual-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div><div class="half"><label for="manual-marker">ArUco ID</label><input id="manual-marker" type="number" min="0"></div></div><div class="row"><div class="grow"><label for="manual-polygon">UUID полигона (если привязан)</label><input id="manual-polygon" placeholder="Необязательно"></div><button id="add-manual">Добавить</button></div></details>
+<div class="divider"></div><button class="primary" id="save">Создать конфигурацию и все токены</button>
+<p class="tip">Повторный запуск сохраняет уже созданные токены и параметры роботов. До калибровки математической модели движение заблокировано.</p>
+</section>
+<section id="ready">
+<h2>3. Скачать персональную прошивку ESP32</h2>
+<p class="muted">В ZIP будет готовый <code>config.h</code> с UUID, токеном робота и адресом локального сервера. Вручную переносить токен не придется.</p>
+<div class="row"><div class="grow"><label for="wifi-ssid">Wi-Fi сеть (2.4 ГГц)</label><input id="wifi-ssid" autocomplete="off" placeholder="Название сети"></div><div class="grow"><label for="wifi-pass">Пароль Wi-Fi</label><input id="wifi-pass" type="password" autocomplete="off" placeholder="Только для ZIP; не сохраняется"></div></div>
+<div class="row"><div class="grow"><label for="host">IP компьютера в этой же Wi-Fi сети</label><select id="host"><option value="">Выбери адрес</option></select></div><div class="half"><label for="port">Порт сервера</label><input id="port" type="number" min="1024" max="65535" value="8766"></div></div>
+<div id="configured"></div>
+<div class="divider"></div><p class="tip">Прошивку загружать через Arduino IDE. Если нужен токен для диагностики, нажми «Показать» и «Копировать» возле соответствующего робота.</p>
+</section>
+<section>
+<h2>4. Запуск и безопасность</h2>
+<p>После настройки закрой мастер и запусти <code>START-ROBOTS-WINDOWS.cmd</code>. Для работы камеры отредактируй измеренные координаты четырех опорных ArUco-маркеров в <code>local/tracker-private.json</code>.</p>
+<p class="tip"><b>Не включай движение до калибровки.</b> Параметр <code>model.calibrated</code> изначально <code>false</code>. Физическая аварийная кнопка и ограждение полигона остаются обязательными.</p>
+</section>
+</main><script src="/wizard-ui.js" defer></script></body></html>
