@@ -25,7 +25,8 @@
     "test:ar": "node test_ar.cjs",
     "test:firmware": "node test_firmware.cjs",
     "test:oneshot": "node --test test_oneshot.cjs",
-    "test:robots-scope": "node --test test_robots_polygon_scope.cjs"
+    "test:robots-scope": "node --test test_robots_polygon_scope.cjs",
+    "test:robots-local": "node --test test_robots_local_software.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

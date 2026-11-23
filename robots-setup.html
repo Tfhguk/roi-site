@@ -66,14 +66,23 @@
       <div id="firmware-list" class="robot-list"><p class="muted">Сначала создай конфигурацию.</p></div>
     </section>
     <section class="panel">
-      <h2>4. Установить на локальный компьютер</h2>
+      <h2>4. Программы для локального компьютера</h2>
+      <p class="muted">Этот архив содержит Robot Server, Cloud Bridge и ArUco Tracker. Без этих программ компьютер не сможет передавать команды между Supabase и ESP32 и получать координаты роботов с камеры.</p>
+      <div class="toolbar"><button id="download-software" class="primary" type="button">Скачать программы для компьютера ZIP</button><span class="muted">Без секретных токенов и паролей</span></div>
+      <p class="warning">Это отдельный архив. Его нужно распаковать в ту же папку, что и ZIP локальной конфигурации. Не заменяй им файлы robot-private.json и tracker-private.json.</p>
+    </section>
+    <section class="panel">
+      <h2>5. Установить и запустить</h2>
       <ol>
-        <li>Скачай ZIP конфигурации и распакуй его в папку проекта ROI.</li>
-        <li>Помести <code>robot-private.json</code> и <code>tracker-private.json</code> в папку <code>local</code> (с заменой, если импортировал старые файлы).</li>
-        <li>На Windows запусти <code>START-ROBOTS-WINDOWS.cmd</code>. Если в конфигурации указан cloud-блок, локальный сервер сам запустит Cloud Bridge.</li>
-        <li>Открой локальный адрес компьютера, проверь подключение, затем прошивай ESP32 через Arduino IDE.</li>
+        <li>Создай одну папку на компьютере и распакуй в неё ZIP конфигурации и ZIP программ.</li>
+        <li>Установи Node.js 20 или новее и Python 3.11 или новее. Ссылки и дальнейшие шаги есть в <code>README-LOCAL-SOFTWARE.txt</code>.</li>
+        <li>Один раз запусти <code>INSTALL-TRACKER-WINDOWS.cmd</code> для установки библиотек камеры.</li>
+        <li>После измерения четырёх неподвижных ArUco-якорей заполни их координаты в <code>local/tracker-private.json</code>.</li>
+        <li>Запусти <code>START-ROBOTS-WINDOWS.cmd</code> — он запускает Robot Server и Cloud Bridge.</li>
+        <li>Отдельно запусти <code>START-TRACKER-WINDOWS.cmd</code> — он запускает камеру и отслеживание роботов.</li>
+        <li>Персональный ZIP прошивки каждого робота открой в Arduino IDE и загрузи в соответствующую ESP32.</li>
       </ol>
-      <p class="muted">GitHub Pages — только интерфейс настройки и генератор файлов. Браузер не может сам записывать файлы в папку проекта, определять IP-адреса сетевых адаптеров или запускать Windows-команды.</p>
+      <p class="muted">GitHub Pages только формирует файлы. Запуск локальных программ выполняется на компьютере пользователя. До калибровки полигона и модели движение остаётся заблокированным.</p>
     </section>
     <footer><a href="setup.html">Вернуться в настройку полигона и гаража</a><a href="welcome.html">Главная</a></footer>
   </main>
