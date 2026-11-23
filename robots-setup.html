@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Подключение роботов · ROI</title>
+  <link rel="stylesheet" href="robots-setup.css">
+  <script src="cloud-config.js" defer></script>
+  <script src="cloud-client.js" defer></script>
+  <script src="robots-setup.js" defer></script>
+</head>
+<body>
+  <header>
+    <a href="welcome.html">← Главная</a>
+    <strong>ROI · Подключение роботов</strong>
+    <span id="account" class="muted">Проверка аккаунта…</span>
+  </header>
+  <main>
+    <div class="heading">
+      <div><p class="eyebrow">НАСТРОЙКА ОБОРУДОВАНИЯ</p><h1>Подключить настоящих роботов</h1>
+        <p class="muted">Веб-версия мастера SETUP-ROBOTS-WINDOWS.cmd. Работает из ROI Site, без отдельного локального окна.</p></div>
+      <span class="chip">GitHub Pages</span>
+    </div>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="panel">
+      <h2>1. Роботы из твоего гаража</h2>
+      <p class="muted">Список загружается из Supabase под твоей учётной записью. Отметь роботов, которых нужно подключить. ArUco ID можно скорректировать здесь.</p>
+      <div class="toolbar"><button id="reload" type="button">Обновить гараж</button><span id="garage-state" class="muted">Загрузка…</span></div>
+      <div id="robots" class="robot-list"></div>
+      <details>
+        <summary>Добавить робота вручную</summary>
+        <div class="fields three">
+          <label>UUID техники<input id="manual-id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label>
+          <label>ArUco ID<input id="manual-marker" type="number" min="0" max="9999"></label>
+          <label>UUID полигона (необязательно)<input id="manual-polygon" placeholder="UUID полигона"></label>
+        </div>
+        <button id="add-manual" type="button">Добавить в список</button>
+      </details>
+    </section>
+    <section class="panel">
+      <h2>2. Сохранить локальную конфигурацию</h2>
+      <p class="muted">Токены генерируются в браузере на этом устройстве. Сайт не отправляет их в GitHub и не сохраняет в Supabase. Можно импортировать прежние файлы, чтобы не менять уже выданные токены и калибровку.</p>
+      <div class="fields two">
+        <label>Импорт robot-private.json<input id="robot-import" type="file" accept="application/json,.json"></label>
+        <label>Импорт tracker-private.json<input id="tracker-import" type="file" accept="application/json,.json"></label>
+      </div>
+      <div class="toolbar"><button id="generate" class="primary" type="button">Создать конфигурацию и токены</button><button id="download-config" type="button" disabled>Скачать ZIP конфигурации</button></div>
+      <p class="warning">ZIP содержит секретные токены и refresh token Supabase. Храни его локально. Не загружай его в GitHub, не отправляй другим людям и не публикуй.</p>
+      <div id="configured" class="robot-list"></div>
+    </section>
+    <section class="panel">
+      <h2>3. Персональная прошивка ESP32</h2>
+      <p class="muted">Для каждого настроенного робота создаётся отдельный ZIP с config.h, UUID, токеном и исходниками прошивки. Wi-Fi пароль попадает только в скачиваемый ZIP.</p>
+      <div class="fields two">
+        <label>Wi-Fi сеть 2.4 ГГц<input id="wifi-ssid" maxlength="32" autocomplete="off" placeholder="Название сети"></label>
+        <label>Пароль Wi-Fi<input id="wifi-password" type="password" maxlength="63" autocomplete="new-password" placeholder="Не сохраняется на сайте"></label>
+      </div>
+      <div class="fields two">
+        <label>IPv4 компьютера в локальной сети<input id="host" inputmode="decimal" placeholder="Например, 192.168.1.25"></label>
+        <label>Порт локального сервера<input id="port" type="number" min="1024" max="65535" value="8766"></label>
+      </div>
+      <p class="muted">IP нужно посмотреть на компьютере командой <code>ipconfig</code> → IPv4-адрес активного Wi-Fi адаптера. Не указывай 127.0.0.1: ESP32 не сможет обратиться к компьютеру по этому адресу.</p>
+      <p class="warning">Не прошивай робота, пока не настроены камера, ArUco-якоря, полигон и математическая модель. Движение по умолчанию заблокировано.</p>
+      <div id="firmware-list" class="robot-list"><p class="muted">Сначала создай конфигурацию.</p></div>
+    </section>
+    <section class="panel">
+      <h2>4. Установить на локальный компьютер</h2>
+      <ol>
+        <li>Скачай ZIP конфигурации и распакуй его в папку проекта ROI.</li>
+        <li>Помести <code>robot-private.json</code> и <code>tracker-private.json</code> в папку <code>local</code> (с заменой, если импортировал старые файлы).</li>
+        <li>На Windows запусти <code>START-ROBOTS-WINDOWS.cmd</code>. Если в конфигурации указан cloud-блок, локальный сервер сам запустит Cloud Bridge.</li>
+        <li>Открой локальный адрес компьютера, проверь подключение, затем прошивай ESP32 через Arduino IDE.</li>
+      </ol>
+      <p class="muted">GitHub Pages — только интерфейс настройки и генератор файлов. Браузер не может сам записывать файлы в папку проекта, определять IP-адреса сетевых адаптеров или запускать Windows-команды.</p>
+    </section>
+    <footer><a href="setup.html">Вернуться в настройку полигона и гаража</a><a href="welcome.html">Главная</a></footer>
+  </main>
+</body>
+</html>
