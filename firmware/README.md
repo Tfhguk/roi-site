@@ -26,7 +26,7 @@ GitHub Pages does not execute server-side code. Do not direct ESP32 to https://t
 
 DRV8833 AIN1/AIN2=GPIO25/26, BIN1/BIN2=GPIO27/12.
 GPIO12 is a strapping pin: make sure the motor carrier does not pull it HIGH at boot.
-WS2812B 3 pixels on GPIO18 with a separate 5V supply and common ground.
+WS2812B / NeoPixel strip: 12 pixels on GPIO18, powered by a separate 5V supply with common ground. Firmware maps the 12 physical pixels into three logical indicator sections: pixels 1–4, 5–8 and 9–12.
 ADC1 GPIO34 for voltage via a divider; example 100k upper / 47k lower for a calibrated 2S battery.
 The ADC input MUST NOT receive raw battery voltage or voltage above its safe range.
 The DRV8833 nSLEEP pin must be in a valid enabled state. nFAULT is optional with pullup to 3.3V.

@@ -111,5 +111,6 @@
   "README-LOCAL-SOFTWARE.txt",
   "local/requirements-tracker.txt",
   "test_github_manifest.cjs",
-  "README-GITHUB-FILES.txt"
+  "README-GITHUB-FILES.txt",
+  "test_led_strip.cjs"
 ]

@@ -14,4 +14,4 @@ const float BATTERY_MIN_V = 6.6f, BATTERY_MAX_V = 8.5f;
 const int DRIVER_FAULT_PIN = -1;
 const int RGB_LAYOUT = 1;
 const int RGB_DATA_PIN = 18;
-const int RGB_LED_COUNT = 3;
+const int RGB_LED_COUNT = 12; // 12 pixels, grouped as 3 logical sections of 4 pixels each.

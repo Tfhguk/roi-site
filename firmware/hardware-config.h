@@ -15,4 +15,4 @@ const int DRIVER_FAULT_PIN = -1;
 // 1 = WS2812/NeoPixel compatible strip, 5 V, D+ on D18, common GND.
 const int RGB_LAYOUT = 1;
 const int RGB_DATA_PIN = 18;
-const int RGB_LED_COUNT = 3; // At least 3. Split the strip into 3 colour sections.
+const int RGB_LED_COUNT = 12; // 12 pixels, grouped as 3 logical sections of 4 pixels each.

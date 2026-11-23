@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const config=fs.readFileSync('firmware/hardware-config.h','utf8');
+const example=fs.readFileSync('firmware/hardware-config.2s.example.h','utf8');
+const indicators=fs.readFileSync('firmware/indicators.h','utf8');
+const ui=fs.readFileSync('firmware-ui.js','utf8');
+const readme=fs.readFileSync('firmware/README.md','utf8');
+assert.match(config,/RGB_LED_COUNT\s*=\s*12\s*;/);
+assert.match(example,/RGB_LED_COUNT\s*=\s*12\s*;/);
+assert.equal((indicators.match(/RGB_LED_COUNT==12/g)||[]).length,2,'Initialization and output must both require the 12-pixel layout');
+assert.match(indicators,/i<RGB_LED_COUNT;i\+\+\)strip\.setPixelColor\(i,c\[i\/4\]\)/,'Each of 12 pixels must follow its four-pixel logical section');
+assert.match(ui,/12 светодиодов/);
+assert.match(ui,/9–12/);
+assert.match(readme,/12 pixels/);
+console.log('PASS: 12-pixel WS2812 strip, three logical sections of four pixels, UI and documentation');
