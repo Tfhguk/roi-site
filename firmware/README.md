@@ -1,5 +1,12 @@
 # ESP32 + local dispatcher + Supabase for roi-site
 
+> **Start here (v3):** Run `SETUP-ROBOTS-WINDOWS.cmd` from the root of `roi-site`.
+> It automatically generates operator, tracker and device tokens, signs into Supabase Auth
+> without requiring you to find a RefreshToken, and downloads a preconfigured ESP32 ZIP.
+> See `SUPABASE_SETUP_RU.md` for a step-by-step Russian guide. The old manual steps below
+> are retained only as technical reference for developers. Do not copy the example JSON
+> into a live system unless you understand the secrets and calibrations involved.
+
 ## Starting point
 
 This folder upgrades the already-existing roi-site project, not a separate web app.
@@ -32,7 +39,7 @@ The local model's linear_m_s and angular_rad_s must reflect the same physical ca
 Set model.calibrated=true only after these measurements. Until then autonomous motion is rejected.
 Without encoders, distance/angle are approximate; ArUco confirms each autonomous segment.
 
-## Installation and cloud link
+## Installation and cloud link (advanced legacy/manual reference)
 
 1. Apply `supabase/robot-cloud-migration.sql` in the EXISTING Supabase project.
 2. Use the garage's actual equipment UUID, polygon UUID, and ArUco marker ID in the private JSON examples.

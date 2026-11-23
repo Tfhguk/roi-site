@@ -15,3 +15,4 @@ robot-runtime/
 tracker-private*.json
 .roi-oneshot-backup/
 **/config.h
+local/*.backup

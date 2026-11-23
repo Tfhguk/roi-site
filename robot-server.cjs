@@ -113,7 +113,8 @@ function createRobotServer(config){
   function validateMove(d,c,allowManual=false){
     if(!c||c.manual&&!allowManual||!['forward','backward','left','right','stop'].includes(c.kind))return 'invalid_kind';
     if(c.kind==='stop')return null;
-    if(d.polygon&&!d.model.calibrated)return 'model_uncalibrated';
+    if(!d.polygon)return 'arena_not_calibrated';
+    if(!d.model.calibrated)return 'model_uncalibrated';
     const turn=c.kind==='left'||c.kind==='right',unit=turn?'deg':'m',cap=turn?Math.min(45,d.model.max_turn_rad*180/Math.PI):Math.min(.25,d.model.max_step_m);
     if(!number(c.value)||c.value<=0||c.value>cap+1e-7||c.unit!==unit)return 'limits_or_units';
     const durationMs=turn?c.value*Math.PI/180/d.model.angular_rad_s*1000:c.value/d.model.linear_m_s*1000;
@@ -165,53 +166,9 @@ function createRobotServer(config){
     if(number(d.lastBattery)&&number(minV)&&d.lastBattery<minV)stop(d,'BATTERY_LOW','Battery below configured threshold',true);
     if(number(d.lastBattery)&&number(maxV)&&d.lastBattery>maxV)stop(d,'BATTERY_RANGE','Battery above configured threshold',true);
     if(d.polygon&&d.mode==='AUTO'&&!poseFresh(d))stop(d,'POSE_STALE','ArUco pose timeout',true);
-    if(d.queue.length&&d.queue[0].expires_at<=now()){
-      d.queue=[];
-      d.mission=null;
-      d.issued=null;
-      d.stop=null;
-      stop(d,'COMMAND_EXPIRED','Command lease expired',true);
-      persist(d);
-      return {
-        code:200,
-        value:{
-          epoch,
-          stop:true,
-          error:'command_expired'
-        }
-      };
-    }
-
-    if(d.stop){
-      const id=d.stop;
-      d.stop=null;
-      if(d.health)d.health.ready=false;
-      persist(d);
-      return {
-        code:200,
-        value:{
-          epoch,
-          stop:true,
-          id,
-          reason:d.fault?.code||'operator_stop'
-        }
-      };
-    }
-
-    if(d.fault){
-      persist(d);
-      return {
-        code:200,
-        value:{
-          epoch,
-          command:null,
-          hold:true,
-          error:d.fault.code
-        }
-      };
-      
-    }
-    
+    if(d.stop){const id=d.stop;d.stop=null;if(d.health)d.health.ready=false;persist(d);return {code:200,value:{epoch,stop:true,id,reason:d.fault?.code||'operator_stop'}};}
+    if(d.fault){persist(d);return {code:200,value:{epoch,command:null,hold:true,error:d.fault.code}};}
+    if(d.queue.length&&d.queue[0].expires_at<=now()){stop(d,'COMMAND_EXPIRED','Command lease expired',true);return {code:200,value:{epoch,stop:true,error:'command_expired'}};}
     if(!d.queue.length&&d.mission)planNext(d);
     const resume=d.resume===true||d.recoveryPending===true;d.resume=false;
     if(d.recoveryPending&&body.ready===true&&(!number(body.error)||body.error===0))d.recoveryPending=false;
