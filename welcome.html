@@ -135,6 +135,10 @@
         const heading=document.createElement("h3");heading.textContent=title;
         const description=document.createElement("p");description.textContent=disabled?"Временно отключено.":text;link.append(heading,description);steps.append(link);
       }
+      const robotLink=document.createElement("a");robotLink.className="step";robotLink.href="robots-setup.html";
+      const robotHeading=document.createElement("h3");robotHeading.textContent="Подключение роботов ESP32";
+      const robotDescription=document.createElement("p");robotDescription.textContent="Настройка настоящих роботов, локальных токенов и персональной прошивки прямо на сайте.";
+      robotLink.append(robotHeading,robotDescription);steps.append(robotLink);
     }else{
       const session=globalThis.AppAuth?.loadSession();
       if(!session?.login){location.replace("login.html");return;}
