@@ -3,7 +3,7 @@ const path = require("node:path");
 const zlib = require("node:zlib");
 const vm = require("node:vm");
 const { createHash } = require("node:crypto");
-//ssыыыыыыы
+//ssыыыыыыыs
 const ROOT = __dirname;
 const DIST = path.resolve(ROOT, "dist");
 const ZIP = path.join(ROOT, "aruco-site.zip");

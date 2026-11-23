@@ -9,6 +9,7 @@
   "name": "equipment-aruco",
   "private": true,
   "scripts": {
+    "publish": "node check-github.cjs",
     "start": "node server.cjs",
     "build": "node build.cjs",
     "generate": "python generate_dict.py",
