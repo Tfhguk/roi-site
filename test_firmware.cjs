@@ -241,15 +241,18 @@ function unzip(data){const files={};let i=0;while(data.readUInt32LE(i)===0x04034
 function deviceTokenSyncTest(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'roi-device-sync-'));
  try{
-  fs.mkdirSync(path.join(root,'local'));
+  const local=path.join(root,'local');
+  fs.mkdirSync(local);
+  fs.copyFileSync(path.join(__dirname,'local','robot-private.example.json'),path.join(local,'robot-private.example.json'));
+  fs.copyFileSync(path.join(__dirname,'local','tracker-private.example.json'),path.join(local,'tracker-private.example.json'));
   const id='12345678-1234-4234-8234-123456789abc';
-  fs.writeFileSync(path.join(root,'local','robot-private.json'),JSON.stringify({operatorToken:'operator-secret',trackerToken:'tracker-secret',cloud:{url:'https://example.supabase.co',refreshToken:'keep-me'},devices:[{id,token:'old-token',model:{calibrated:true,linear_m_s:0.2}}]}));
-  fs.writeFileSync(path.join(root,'local','tracker-private.json'),JSON.stringify({trackerToken:'old-tracker',anchors:{40:[1,2],41:[3,4],42:[5,6],43:[7,8]},robots:[{id,yaw_offset_deg:123}]}));
-  fs.writeFileSync(path.join(root,'local','robot-device.private.json'),JSON.stringify({id,polygon_id:'polygon-a',marker_id:17,token:'shared-device-token-12345678901234567890'}));
+  fs.writeFileSync(path.join(local,'robot-private.json'),JSON.stringify({operatorToken:'operator-secret',trackerToken:'tracker-secret',cloud:{url:'https://example.supabase.co',refreshToken:'keep-me'},devices:[{id,token:'old-token',model:{calibrated:true,linear_m_s:0.2}}]}));
+  fs.writeFileSync(path.join(local,'tracker-private.json'),JSON.stringify({trackerToken:'old-tracker',anchors:{40:[1,2],41:[3,4],42:[5,6],43:[7,8]},robots:[{id,yaw_offset_deg:123}]}));
+  fs.writeFileSync(path.join(local,'robot-device.private.json'),JSON.stringify({id,polygon_id:'polygon-a',marker_id:17,token:'shared-device-token-12345678901234567890'}));
   const script=path.join(root,'sync-device-config.cjs');fs.copyFileSync(path.join(__dirname,'sync-device-config.cjs'),script);
   require('node:child_process').execFileSync(process.execPath,[script],{cwd:root,stdio:'pipe'});
-  const config=JSON.parse(fs.readFileSync(path.join(root,'local','robot-private.json')));
-  const tracker=JSON.parse(fs.readFileSync(path.join(root,'local','tracker-private.json')));
+  const config=JSON.parse(fs.readFileSync(path.join(local,'robot-private.json')));
+  const tracker=JSON.parse(fs.readFileSync(path.join(local,'tracker-private.json')));
   assert.equal(config.devices[0].token,'shared-device-token-12345678901234567890');
   assert.equal(config.devices[0].model.calibrated,true);assert.equal(config.operatorToken,'operator-secret');assert.equal(config.cloud.refreshToken,'keep-me');
   assert.equal(tracker.trackerToken,'tracker-secret');assert.deepEqual(tracker.anchors,{40:[1,2],41:[3,4],42:[5,6],43:[7,8]});assert.equal(tracker.robots[0].yaw_offset_deg,123);assert.equal(tracker.robots[0].marker_id,17);
