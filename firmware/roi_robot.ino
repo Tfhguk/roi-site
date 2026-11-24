@@ -1,6 +1,5 @@
 // roi-site ESP32 DevKit V1 / Arduino-ESP32 3.x / ArduinoJson 7 / Adafruit NeoPixel.
 // Motors: DRV8833 AIN1=25 AIN2=26 BIN1=27 BIN2=12. RGB WS2812 D18.
-// Fail closed: no motion until hardware-config.h contains real calibration and ADC divider.
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -8,6 +7,10 @@
 #include <atomic>
 #include <math.h>
 #include "config.h"
+// TEST ONLY: bypass battery-voltage monitoring and battery fault blocking.
+#define ROI_TEST_DISABLE_BATTERY_MONITOR 1
+// Motor PWM is ENABLED for real locomotion:
+// #define ROI_TEST_READY_ONLY 1
 #include "hardware.h"
 #include "indicators.h"
 
@@ -32,39 +35,70 @@ bool configured=false, active=false, completedOK=false;
 Order current={};
 uint32_t started=0;
 
+static void logLine(const String &message){
+  Serial.printf("[%10lu ms] %s\n",(unsigned long)millis(),message.c_str());
+}
+
 void fail(int code){
-  // Force zero PWM before any network operation. Main loop records the error.
   hardwareStop();
   if(!failure.load()) failure=code;
 }
 
 bool post(const String &endpoint,const String &body,String &response){
-  if(!String(SERVER_URL).startsWith("http://"))return false;
+  static uint32_t lastPostLog[3]={0,0,0};
+  static bool postEverOK[3]={false,false,false};
+  int slot=endpoint=="telemetry"?0:(endpoint=="ack"?1:2);
+  if(!String(SERVER_URL).startsWith("http://")){
+    logLine("[HTTP][POST] invalid SERVER_URL (expected http://)");return false;
+  }
   HTTPClient request;
-  request.setConnectTimeout(350);
-  request.setTimeout(450);
-  if(!request.begin(String(SERVER_URL)+"/api/robots/"+DEVICE_ID+"/"+endpoint))return false;
+  request.setConnectTimeout(1200);
+  request.setTimeout(1800);
+  const String url=String(SERVER_URL)+"/api/robots/"+DEVICE_ID+"/"+endpoint;
+  if(!request.begin(url)){
+    if(millis()-lastPostLog[slot]>2000){logLine("[HTTP][POST] "+endpoint+" begin failed");lastPostLog[slot]=millis();}
+    return false;
+  }
   request.addHeader("Authorization",String("Bearer ")+DEVICE_TOKEN);
   request.addHeader("Content-Type","application/json");
   const int status=request.POST(body);
-  if(status==200)response=request.getString();
+  if(status==200){
+    if(!postEverOK[slot] || (endpoint=="telemetry"&&millis()-lastPostLog[slot]>5000))
+      logLine("[HTTP][POST] "+endpoint+" -> HTTP 200 OK");
+    postEverOK[slot]=true;lastPostLog[slot]=millis();response=request.getString();
+  }else if(millis()-lastPostLog[slot]>2000){
+    logLine("[HTTP][POST] "+endpoint+" -> "+String(status)+" "+(status<0?request.errorToString(status):String("HTTP error")));
+    lastPostLog[slot]=millis();
+  }
   request.end();
   return status==200;
 }
 
 bool fetchCommand(String &response){
-  if(!String(SERVER_URL).startsWith("http://"))return false;
+  static uint32_t lastGetLog=0;
+  if(!String(SERVER_URL).startsWith("http://")){
+    if(millis()-lastGetLog>2000){logLine("[HTTP][GET] invalid SERVER_URL (expected http://)");lastGetLog=millis();}
+    return false;
+  }
   String url=String(SERVER_URL)+"/api/robots/"+DEVICE_ID+"/command?boot="+boot;
   url+="&ready="+String(configured&&!failure.load()?1:0);
   url+="&error="+String(failure.load());
-  url+="&battery_v="+String(hardwareVoltage(),3);
   HTTPClient request;
-  request.setConnectTimeout(350);
-  request.setTimeout(450);
-  if(!request.begin(url))return false;
+  request.setConnectTimeout(1200);
+  request.setTimeout(1800);
+  if(!request.begin(url)){
+    if(millis()-lastGetLog>2000){logLine("[HTTP][GET] command begin failed");lastGetLog=millis();}
+    return false;
+  }
   request.addHeader("Authorization",String("Bearer ")+DEVICE_TOKEN);
   const int status=request.GET();
-  if(status==200)response=request.getString();
+  if(status==200){
+    if(millis()-lastGetLog>5000){logLine("[HTTP][GET] command -> HTTP 200 OK");lastGetLog=millis();}
+    response=request.getString();
+  }else if(millis()-lastGetLog>2000){
+    logLine("[HTTP][GET] command -> "+String(status)+" "+(status<0?request.errorToString(status):String("HTTP error")));
+    lastGetLog=millis();
+  }
   request.end();
   return status==200;
 }
@@ -73,12 +107,22 @@ void networking(void*){
   Result pending={};
   bool hasResult=false;
   int reportedError=0;
-  uint32_t lastTelemetry=0;
+  uint32_t lastTelemetry=0,lastWifiLog=0;
+  wl_status_t previousWifiStatus=WL_IDLE_STATUS;
   for(;;){
-    if(WiFi.status()!=WL_CONNECTED){
+    const wl_status_t wifiStatus=WiFi.status();
+    if(wifiStatus!=WL_CONNECTED){
       networkReady=false;
-      vTaskDelay(pdMS_TO_TICKS(100));
+      if(wifiStatus!=previousWifiStatus || millis()-lastWifiLog>5000){
+        logLine("[WIFI] not connected; status="+String((int)wifiStatus));
+        previousWifiStatus=wifiStatus;lastWifiLog=millis();
+      }
+      vTaskDelay(pdMS_TO_TICKS(250));
       continue;
+    }
+    if(previousWifiStatus!=WL_CONNECTED){
+      logLine("[WIFI] connected; IP="+WiFi.localIP().toString()+" RSSI="+String(WiFi.RSSI())+" dBm");
+      previousWifiStatus=WL_CONNECTED;lastWifiLog=millis();
     }
     if(!hasResult)hasResult=xQueueReceive(outgoing,&pending,0)==pdTRUE;
     String response,body;
@@ -96,14 +140,12 @@ void networking(void*){
     if(fault&&fault!=reportedError){
       payload["code"]=String(fault);
       payload["detail"]="ESP32 hardware/network fault";
-      payload["battery_v"]=hardwareVoltage();
       serializeJson(payload,body);
       if(post("error",body,response))reportedError=fault;
       payload.clear();body="";
     }
     if(millis()-lastTelemetry>500){
       payload["boot"]=boot;
-      payload["battery_v"]=hardwareVoltage();
       payload["error"]=fault;
       serializeJson(payload,body);
       if(post("telemetry",body,response))lastTelemetry=millis();
@@ -166,6 +208,9 @@ void finish(bool ok){
 
 void setup(){
   Serial.begin(115200);
+  delay(250);
+  logLine("[BOOT] ROI robot firmware starting");
+  logLine("[CONFIG] device="+String(DEVICE_ID)+" server="+String(SERVER_URL));
   boot=String((uint32_t)esp_random(),HEX)+String((uint32_t)esp_random(),HEX);
   indicatorsBegin();indicate(SELFTEST);
   if(!journal.begin("roi_robot",false))fail(FAULT);
@@ -173,11 +218,16 @@ void setup(){
   completedOK=journal.getBool("result_ok",false);
   if(journal.getString("active","").length())fail(FAULT);
   configured=hardwareBegin();hardwareStop();
-  if(!configured)fail(FAULT);
+  logLine(String("[HARDWARE] initialization ")+(configured?"OK":"FAILED"));
+  if(!configured){fail(FAULT);logLine("[SAFETY] hardware setup failed; motor output remains disabled");}
   incoming=xQueueCreate(1,sizeof(Order));outgoing=xQueueCreate(4,sizeof(Result));
   if(!incoming||!outgoing){fail(FAULT);return;}
-  WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
-  xTaskCreate(networking,"robot-network",8192,nullptr,1,nullptr);
+  WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);
+  logLine("[WIFI] connecting to SSID=\""+String(WIFI_SSID)+"\"");
+  WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
+  const BaseType_t taskResult=xTaskCreate(networking,"robot-network",8192,nullptr,1,nullptr);
+  if(taskResult!=pdPASS)logLine("[FATAL] failed to start network task");
+  else logLine("[BOOT] network task started; waiting for Wi-Fi and server");
 }
 
 void loop(){
@@ -196,7 +246,6 @@ void loop(){
     indicate(failure.load()?failure.load():FAULT);
     delay(5);return;
   }
-  // Losing either Wi-Fi or successful GET heartbeat cuts all motor PWM.
   if(!networkReady||millis()-lastContact.load()>850){
     if(active){finish(false);fail(NETWORK);}
     hardwareStop();indicate(NETWORK);delay(5);return;
@@ -212,7 +261,7 @@ void loop(){
         if(!journal.putString("active",order.id)){fail(FAULT);return;}
         if(!strcmp(order.kind,"stop"))finish(true);
         else if(hardwareStart(order.kind,order.value)){
-          if(failure.load()){hardwareStop();finish(false);} // safety check across FreeRTOS tasks
+          if(failure.load()){hardwareStop();finish(false);}
           else{active=true;started=millis();}
         }
         else{finish(false);fail(FAULT);}

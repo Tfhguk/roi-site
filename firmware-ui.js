@@ -9,7 +9,8 @@
           ['robot-private.example.json','local/robot-private.example.json'],
           ['tracker-private.example.json','local/tracker-private.example.json'],
           ['aruco-tracker.py','local/aruco-tracker.py'],
-          ['flash-esp32.cmd','local/flash-esp32.cmd']
+          ['flash-esp32.cmd','local/flash-esp32.cmd'],
+          ['sync-device-config.cjs','sync-device-config.cjs']
         ]) {
           if (!names.includes(roiName)) { names.push(roiName); paths.push(roiPath); }
         }
@@ -29,7 +30,7 @@
  }
  // Escape UTF-8 C++ strings, including control characters and line separators.
  const literal=value=>'"'+Array.from(encoder.encode(String(value))).map(b=>b>=32&&b<127&&b!==34&&b!==92?String.fromCharCode(b):'\\'+b.toString(8).padStart(3,'0')).join('')+'"';
- function configuration(item,values){return `#pragma once\n// Private: do not commit or share this file.\n#define DEVICE_ID ${literal(item.id)}\n#define POLYGON_ID ${literal(item.polygon_id||'')}\n#define MARKER_ID ${Number.isInteger(item.marker_id)?item.marker_id:-1}\n#define SERVER_URL ${literal(values.server.replace(/\/+$/,''))}\n#define DEVICE_TOKEN ${literal(values.token)}\n#define WIFI_SSID ${literal(values.ssid)}\n#define WIFI_PASSWORD ${literal(values.password)}\n// Hardware wiring and calibration: hardware-config.h\n`;}
+ function configuration(item,values){return `#pragma once\n// Private: do not commit or share this file.\n#define DEVICE_ID ${literal(item.id)}\n#define POLYGON_ID ${literal(item.polygon_id||'')}\n#define MARKER_ID ${Number.isInteger(item.marker_id)?item.marker_id:-1}\n#define SERVER_URL ${literal(values.server.replace(/\/+$/,''))}\n#define DEVICE_TOKEN ${literal(values.token)}\n#define WIFI_SSID ${literal(values.ssid)}\n#define WIFI_PASSWORD ${literal(values.password)}\n// Hardware wiring and calibration: hardware-config.h\n`; }
  async function open(item){
   const previous=document.querySelector('.firmware-dialog');if(previous?.open)return;previous?.remove();
   const dialog=el('dialog',undefined,'firmware-dialog'),form=el('form'),heading=el('div',undefined,'firmware-heading'),title=el('h2','Прошивка ESP32 · '+item.name),close=el('button','Закрыть');close.type='button';close.onclick=()=>dialog.close();heading.append(title,close);
@@ -44,7 +45,7 @@
     const fields=el('div',undefined,'firmware-settings');
     for(const [key,label,type] of [['server','Адрес сервера команд','url'],['ssid','Wi-Fi: имя сети','text'],['password','Wi-Fi: пароль','password'],['token','Токен только этой техники','password']]){const l=el('label',label),input=el('input');input.type=type;input.value=values[key];input.autocomplete='off';input.name=key;input.oninput=()=>{values[key]=input.value;};l.append(input);fields.append(l);}
     const generate=el('button','Создать токен техники');generate.type='button';generate.onclick=()=>{values.token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');render();};
-    body.append(fields,generate,el('p','Для ESP32 нужен отдельный сервер команд — GitHub Pages его не запускает. В архиве есть сервер и инструкция. Пароли остаются в памяти этого окна и в скачанном config.h.'),el('small','UUID адресует конкретную машину; ID маркера может повторяться на разных полигонах. Старые логи симуляции автоматически не воспроизводятся.'));
+    body.append(fields,generate,el('p','Для ESP32 нужен отдельный сервер команд — GitHub Pages его не запускает. Один токен записывается в config.h и server/local/robot-device.private.json. Скопируй этот фрагмент и sync-device-config.cjs в папку своего работающего robot-server.cjs, затем запусти node sync-device-config.cjs. Существующие private-секреты и настройки сохраняются.'),el('small','UUID адресует конкретную машину; ID маркера может повторяться на разных полигонах. Старые логи симуляции автоматически не воспроизводятся.'));
    }else if(tab==='signals'){
     body.append(el('p','Лента 5V: 12 светодиодов WS2812/NeoPixel. D+ → D18 (GPIO18), GND общий. От входа лента разделена на 3 участка по 4 светодиода: участок 1, 2 и 3. Драйвер 800 кГц. «—» — выключен.'));
     const table=el('table'),head=el('tr');for(const t of ['Код','Участки 1–4 / 5–8 / 9–12','Значение'])head.append(el('th',t));table.append(head);
@@ -67,10 +68,15 @@
       'firmware/hardware-config.2s.example.h':files['hardware-config.2s.example.h'],
       'server/local/cloud-bridge.cjs':files['cloud-bridge.cjs'],
       'server/robot-private.example.json':files['robot-private.example.json'],
+      'server/local/robot-device.private.json':JSON.stringify({id:item.id,polygon_id:item.polygon_id||null,marker_id:Number.isInteger(item.marker_id)?item.marker_id:null,token:values.token},null,2)+'\n',
+      'server/sync-device-config.cjs':files['sync-device-config.cjs'],
+      'server/local/robot-private.example.json':files['robot-private.example.json'],
+      'server/local/tracker-private.example.json':files['tracker-private.example.json'],
       'server/tracker-private.example.json':files['tracker-private.example.json'],
       'server/local/aruco-tracker.py':files['aruco-tracker.py'],
-      'server/flash-esp32.cmd':files['flash-esp32.cmd']});
-    const href=URL.createObjectURL(archive),a=el('a');a.href=href;a.download='esp32-'+String(item.id).replace(/[^a-z0-9-]/gi,'')+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);message.setAttribute('role','status');message.textContent='Архив скачан. Начните с README.md.';
+      'server/flash-esp32.cmd':files['flash-esp32.cmd'],
+      'server/TOKEN-SYNC.txt':'TOKEN SYNC\n\n1. Найди папку, в которой находится твой работающий robot-server.cjs и папка local.\n2. Из папки server этого архива скопируй sync-device-config.cjs в найденную папку рядом с robot-server.cjs.\n3. Скопируй server/local/robot-device.private.json в её папку local.\n4. НЕ заменяй существующие local/robot-private.json и local/tracker-private.json.\n5. Убедись, что в local/robot-private.json заданы собственные operatorToken и trackerToken (не REPLACE_...).\n6. Открой CMD в папке с robot-server.cjs и выполни: node sync-device-config.cjs\n7. Скрипт запишет DEVICE_TOKEN из robot-device.private.json в запись этого робота в robot-private.json и синхронизирует tracker-private.json. Он сохранит cloud, операторские секреты, модель, калибровку, anchors и yaw_offset_deg.\n8. Используй roi_robot/config.h из этого ZIP для прошивки ESP32. Токен в прошивке и серверной конфигурации будет одинаковым.\n\nНе публикуй ZIP, config.h или JSON-файлы: они содержат секреты.'});
+    const href=URL.createObjectURL(archive),a=el('a');a.href=href;a.download='esp32-'+String(item.id).replace(/[^a-z0-9-]/gi,'')+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);message.setAttribute('role','status');message.textContent='Архив скачан. Токен в config.h и private-фрагменте совпадает. После распаковки выполните node sync-device-config.cjs.';
    }catch(e){error(e.message);}
   };
   try{sourcesPromise??=Promise.all(paths.map(async path=>{const r=await fetch(path);if(!r.ok)throw Error('Не удалось загрузить исходники. Повторите открытие окна.');return r.text();})).catch(e=>{sourcesPromise=null;throw e;});const text=await sourcesPromise;files=Object.fromEntries(names.map((name,i)=>[name,text[i]]));download.disabled=false;message.textContent='Проект требует настройки оборудования.';render();}catch(e){error(e.message);}

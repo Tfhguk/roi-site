@@ -39,6 +39,8 @@ test('new local robot software files are included in the manifest', () => {
     'local/cloud-bridge.cjs',
     'local/aruco-tracker.py',
     'robot-server.cjs',
+    'sync-device-config.cjs',
+    'test_device_token_sync.cjs',
     'github-files.json'
   ]) assert.ok(files.includes(name), `${name} missing from manifest`);
 });

@@ -26,7 +26,8 @@
     "test:firmware": "node test_firmware.cjs",
     "test:oneshot": "node --test test_oneshot.cjs",
     "test:robots-scope": "node --test test_robots_polygon_scope.cjs",
-    "test:robots-local": "node --test test_robots_local_software.cjs"
+    "test:robots-local": "node --test test_robots_local_software.cjs",
+    "test:device-token-sync": "node --test test_device_token_sync.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.16",

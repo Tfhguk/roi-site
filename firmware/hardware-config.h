@@ -3,9 +3,9 @@
 const int MOTOR_PINS[4] = {25,26,27,12};
 const int MOTOR_SIGN[2] = {1,1}; // -1 reverses the corresponding wheel.
 const int MOTOR_PWM = 100; // 8-bit, 0..255. Calibrate at THIS duty.
-// No encoder information yet. Explicit opt-in to approximate timed movement.
-const bool ALLOW_TIMED_MOTION = false;
-const float METRES_PER_SECOND = 0, DEGREES_PER_SECOND = 0;
+// Explicit opt-in to timed movement matching robot-private.json calibration.
+const bool ALLOW_TIMED_MOTION = true;
+const float METRES_PER_SECOND = 0.10f, DEGREES_PER_SECOND = 34.4f;
 // Mandatory voltage measurement: ADC1 only while Wi-Fi is active.
 const int BATTERY_ADC_PIN = -1;
 const float DIVIDER_TOP_OHM = 0, DIVIDER_BOTTOM_OHM = 0;

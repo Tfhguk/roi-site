@@ -27,7 +27,6 @@ function startCloudBridge(config,localBase){
     const body=await result.json();
     token=body.access_token;cloud.refreshToken=body.refresh_token;expires=Date.now()+body.expires_in*1000;userId=body.user?.id||'';
     if(!userId)throw Error('Cloud user ID unavailable');
-    // Do not write cloud credentials into public files or logs.
     if(config.privateConfigPath){
       const file=config.privateConfigPath,tmp=file+'.'+randomUUID()+'.tmp';
       fs.writeFileSync(tmp,JSON.stringify(config,null,2)+'\n',{mode:0o600});fs.renameSync(tmp,file);
@@ -39,6 +38,29 @@ function startCloudBridge(config,localBase){
     const body=await response.json();
     if(!response.ok)throw Error('Local '+response.status+': '+(body.detail||body.error));
     return body;
+  }
+  let arenaSynced=false;
+  async function syncArenaFromCloud(){
+    const polyIds=[...new Set(config.devices.map(d=>d.polygon_id).filter(Boolean))];
+    for(const pid of polyIds){
+      const rows=await cloudFetch('/rest/v1/polygons?id=eq.'+encodeURIComponent(pid)+'&select=id,geometry,config');
+      const polyRow=rows?.[0];
+      const pts=polyRow?.geometry?.points;
+      if(!Array.isArray(pts)||pts.length<3)continue;
+      const scaleM=Number(polyRow?.config?.metresPerUnit)||Number(config.arenaScaleM)||0.002;
+      const polygonMeters=pts.map(p=>({
+        x:Math.round(p.x*scaleM*10000)/10000,
+        y:Math.round(p.y*scaleM*10000)/10000
+      }));
+      const anchors={};
+      for(let i=0;i<pts.length;i++){
+        const mid=pts[i].markerId??pts[i].marker_id;
+        if(Number.isInteger(mid)&&mid>=0)anchors[String(mid)]=[polygonMeters[i].x,polygonMeters[i].y];
+      }
+      await local('/api/arena','POST',{polygon_id:pid,polygon:polygonMeters,anchors});
+      console.log('[cloud] arena & anchors synced for',pid,'anchors:',Object.keys(anchors).length);
+      arenaSynced=true;
+    }
   }
   async function patch(job,status,details){
     const q='/rest/v1/robot_jobs?id=eq.'+encodeURIComponent(job.id)+'&status=eq.'+encodeURIComponent(job.status);
@@ -92,8 +114,8 @@ function startCloudBridge(config,localBase){
     for(;;){
       try{
         await refresh();
+        if(!arenaSynced||tick%15===0)await syncArenaFromCloud();
         const rows=await cloudFetch('/rest/v1/robot_jobs?status=eq.pending&select=*&order=created_at.asc&limit=25');
-        // STOP takes precedence over non-emergency commands.
         rows.sort((a,b)=>(b.payload?.action==='STOP')-(a.payload?.action==='STOP'));
         for(const job of rows){if(!config.devices.some(d=>d.id===job.robot_id))continue;await processJob(job);}
         if(tick++%2===0)await syncStatus();
