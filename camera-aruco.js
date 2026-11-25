@@ -1,11 +1,16 @@
 (() => {
   "use strict";
-  const G = window.SetupGeometry;
   const video = document.getElementById("camVideo");
   const canvas = document.getElementById("camCanvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const offscreen = document.createElement("canvas");
   const offCtx = offscreen.getContext("2d", { willReadFrequently: true });
+
+  // Override display:none so Chromium/Edge continuously decodes video frames
+  if (video) {
+    video.style.cssText =
+      "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;display:block;";
+  }
 
   const ZONE_COLORS = {
     transport: "#38bdf8",
@@ -30,13 +35,31 @@
   let detectedRobots = [];
   let activeRobotId = null;
   let manualTakeover = false;
+  let loopRunning = false;
+  let detectorErrorShown = false;
 
   const $ = id => document.getElementById(id);
 
   function setStatus(text, type = "") {
     const el = $("syncStatus");
+    if (!el) return;
     el.textContent = text;
     el.className = "badge " + type;
+  }
+
+  function isInsidePolygon(pt, poly) {
+    if (window.SetupGeometry && typeof window.SetupGeometry.inside === "function") {
+      return window.SetupGeometry.inside(pt, poly);
+    }
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > pt.y) !== (yj > pt.y)) &&
+        (pt.x < ((xj - xi) * (pt.y - yi)) / ((yj - yi) || 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
   }
 
   function triggerManualTakeover(reason) {
@@ -46,10 +69,12 @@
     setStatus("Ручное управление: " + reason, "warn");
   }
 
-  async function initCameras() {
+  async function initCameras(preferredId = "") {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cams = devices.filter(d => d.kind === "videoinput");
     const sel = $("cameraSelect");
+    const current = preferredId || sel.value;
     sel.innerHTML = "";
     cams.forEach((c, i) => {
       const opt = document.createElement("option");
@@ -57,19 +82,76 @@
       opt.textContent = c.label || `Камера ${i + 1}`;
       sel.append(opt);
     });
+    if (current && cams.some(c => c.deviceId === current)) {
+      sel.value = current;
+    }
+  }
+
+  async function openStream(deviceId) {
+    const attempts = [];
+    if (deviceId) {
+      attempts.push({
+        video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    }
+    attempts.push(
+      { video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: true, audio: false }
+    );
+
+    let lastError = null;
+    for (const constraints of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error("Не удалось открыть видеопоток");
   }
 
   async function startCamera() {
-    const deviceId = $("cameraSelect").value;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: deviceId ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : true,
-      audio: false
-    });
-    video.srcObject = stream;
-    await video.play();
-    await initCameras();
-    setStatus("Камера активна", "ok");
-    requestAnimationFrame(loop);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStatus("Браузер заблокировал камеру (нужен HTTPS или localhost)", "warn");
+      return;
+    }
+    try {
+      setStatus("Подключение камеры...");
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+      }
+      const selectedId = $("cameraSelect").value;
+      const stream = await openStream(selectedId);
+      video.srcObject = stream;
+      await video.play();
+
+      if (!video.videoWidth) {
+        await new Promise(resolve => {
+          const done = () => resolve();
+          video.addEventListener("loadedmetadata", done, { once: true });
+          setTimeout(done, 1000);
+        });
+      }
+
+      const activeTrack = stream.getVideoTracks()[0];
+      const activeDeviceId = activeTrack?.getSettings?.().deviceId || selectedId;
+      await initCameras(activeDeviceId);
+
+      detectorErrorShown = false;
+      setStatus(`Камера активна (${video.videoWidth || 1280}×${video.videoHeight || 720})`, "ok");
+
+      if (!loopRunning) {
+        loopRunning = true;
+        requestAnimationFrame(loop);
+      }
+    } catch (err) {
+      const msg = err?.name === "NotReadableError"
+        ? "Камера занята другой программой (закройте aruco-tracker.py)"
+        : (err?.message || err?.name || "ошибка доступа");
+      setStatus("Ошибка камеры: " + msg, "warn");
+    }
   }
 
   function usedMarkerIds() {
@@ -79,20 +161,14 @@
     return ids;
   }
 
-  function detectFrame() {
-    if (video.readyState < 2) return;
-    const w = video.videoWidth || 1280;
-    const h = video.videoHeight || 720;
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-      offscreen.width = w;
-      offscreen.height = h;
-    }
+  function detectFrame(w, h) {
     offCtx.drawImage(video, 0, 0, w, h);
     const imgData = offCtx.getImageData(0, 0, w, h);
+    if (!window.MarkerDetection || !window.ArucoMarker) {
+      throw new Error("Модуль распознавания ArUco не загружен");
+    }
     const detector = MarkerDetection.getDetector(ArucoMarker.DEFAULT_DICTIONARY);
-    const raw = detector.detect(imgData);
+    const raw = detector.detect(imgData) || [];
 
     const scaleM = ARENA_WIDTH_M / w;
     detectedMarkers = raw.map(m => {
@@ -150,7 +226,9 @@
     if (!transportZones.length) return;
 
     for (const r of detectedRobots) {
-      const insideTransport = transportZones.some(z => G.inside({ x: r.normX, y: r.normY }, z.points.map(p => ({ x: p.normX, y: p.normY }))));
+      const insideTransport = transportZones.some(z =>
+        isInsidePolygon({ x: r.normX, y: r.normY }, z.points.map(p => ({ x: p.normX, y: p.normY })))
+      );
       if (!insideTransport) {
         fetch("/robot-api/stop-all", { method: "POST" }).catch(() => {});
         triggerManualTakeover(`Робот (ID ${r.marker_id}) выехал за транспортную зону!`);
@@ -160,7 +238,6 @@
   }
 
   function drawScene() {
-    if (video.readyState < 2) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     if (polygon.points.length) {
@@ -246,13 +323,31 @@
   }
 
   function loop() {
-    detectFrame();
-    drawScene();
+    if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        offscreen.width = w;
+        offscreen.height = h;
+      }
+      try {
+        detectFrame(w, h);
+      } catch (err) {
+        if (!detectorErrorShown) {
+          detectorErrorShown = true;
+          setStatus("Видео работает, ошибка ArUco: " + (err?.message || err), "warn");
+        }
+      }
+      drawScene();
+    }
     requestAnimationFrame(loop);
   }
 
   canvas.addEventListener("click", e => {
     const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const clickX = (e.clientX - rect.left) * scaleX;
