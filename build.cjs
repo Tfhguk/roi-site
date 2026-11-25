@@ -7,7 +7,7 @@ const { createHash } = require("node:crypto");
 const ROOT = __dirname;
 const DIST = path.resolve(ROOT, "dist");
 const ZIP = path.join(ROOT, "aruco-site.zip");
-const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.html", "auth.js",
+const SOURCE_FILES = ["login.html", "welcome.html", "markers.html", "polygon.html", "camera-aruco.html", "camera-aruco.js", "auth.js",
   "aruco_dict_4x4_50.js", "aruco.js", "polygon-geometry.js", "marker-detection.js",
   "polygon-worker.js", "polygon.js", "polygon.css", "cloud-config.js", "cloud-client.js", "cloud-login.js",
   "setup.html", "setup.css", "setup.js", "setup-geometry.js", "setup-export.js", "firmware-ui.js", "sync-device-config.cjs", "firmware.css",
