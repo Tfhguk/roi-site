@@ -6,7 +6,6 @@
   const offscreen = document.createElement("canvas");
   const offCtx = offscreen.getContext("2d", { willReadFrequently: true });
 
-  // Override display:none so Chromium/Edge continuously decodes video frames
   if (video) {
     video.style.cssText =
       "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;display:block;";
@@ -45,6 +44,13 @@
     if (!el) return;
     el.textContent = text;
     el.className = "badge " + type;
+  }
+
+  function updateModeButtons() {
+    const polyBtn = $("stepPolyBtn");
+    if (polyBtn) {
+      polyBtn.classList.toggle("primary", mode === "polygon");
+    }
   }
 
   function isInsidePolygon(pt, poly) {
@@ -164,8 +170,8 @@
   function detectFrame(w, h) {
     offCtx.drawImage(video, 0, 0, w, h);
     const imgData = offCtx.getImageData(0, 0, w, h);
-    if (!window.MarkerDetection || !window.ArucoMarker) {
-      throw new Error("Модуль распознавания ArUco не загружен");
+    if (!window.AR || !window.MarkerDetection || !window.ArucoMarker) {
+      throw new Error("Не подключены скрипты js-aruco2 (cv.js / aruco.js)");
     }
     const detector = MarkerDetection.getDetector(ArucoMarker.DEFAULT_DICTIONARY);
     const raw = detector.detect(imgData) || [];
@@ -334,6 +340,10 @@
       }
       try {
         detectFrame(w, h);
+        if (detectorErrorShown) {
+          detectorErrorShown = false;
+          setStatus(`Камера активна (${w}×${h})`, "ok");
+        }
       } catch (err) {
         if (!detectorErrorShown) {
           detectorErrorShown = true;
@@ -395,10 +405,26 @@
     }
   });
 
+  if ($("stepPolyBtn")) {
+    $("stepPolyBtn").onclick = () => {
+      mode = "polygon";
+      if (polygon.closed) {
+        polygon.closed = false;
+        $("closePolyBtn").disabled = polygon.points.length < 3;
+        $("zoneKindSelect").disabled = true;
+      }
+      updateModeButtons();
+      $("polyInfo").textContent = polygon.points.length
+        ? `Выбор вершин: ${polygon.points.length} (ID: ${polygon.points.map(p => p.markerId).join(", ")})`
+        : "Нажимайте на подсвеченные ArUco-маркеры на видео";
+    };
+  }
+
   $("closePolyBtn").onclick = () => {
     if (polygon.points.length < 3) return;
     polygon.closed = true;
     mode = "zones";
+    updateModeButtons();
     $("polyInfo").textContent = `Полигон замкнут (${polygon.points.length} вершин)`;
     $("closePolyBtn").disabled = true;
     $("zoneKindSelect").disabled = false;
@@ -412,6 +438,7 @@
     zones = [];
     zoneDraft = { kind: "transport", points: [] };
     mode = "polygon";
+    updateModeButtons();
     $("polyInfo").textContent = "Вершин: 0 (не замкнут)";
     $("closePolyBtn").disabled = true;
     $("zoneKindSelect").disabled = true;
@@ -546,5 +573,6 @@
   };
 
   $("startCamBtn").onclick = startCamera;
+  updateModeButtons();
   initCameras().catch(() => {});
 })();
