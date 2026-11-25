@@ -5,6 +5,10 @@
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const offscreen = document.createElement("canvas");
   const offCtx = offscreen.getContext("2d", { willReadFrequently: true });
+  const boostCanvas = document.createElement("canvas");
+  const boostCtx = boostCanvas.getContext("2d", { willReadFrequently: true });
+  const depthSampleCanvas = document.createElement("canvas");
+  const depthSampleCtx = depthSampleCanvas.getContext("2d", { willReadFrequently: true });
 
   if (video) {
     video.style.cssText =
@@ -32,10 +36,27 @@
   let zoneDraft = { kind: "transport", points: [] };
   let detectedMarkers = [];
   let detectedRobots = [];
+  let hoveredMarkerId = null;
   let activeRobotId = null;
   let manualTakeover = false;
   let loopRunning = false;
   let detectorErrorShown = false;
+
+  // Depth preview state (ARproject / depth_http_preview.py)
+  const depthState = {
+    connected: false,
+    url: "http://localhost:8765",
+    calibrated: false,
+    stage: "disconnected",
+    projectionRevision: null,
+    settingsRevision: 0,
+    projectionWidth: 1280,
+    projectionHeight: 800,
+    lastSnapshotId: -1,
+    pollingTimer: null,
+    busy: false,
+    elevationGrid: null
+  };
 
   const $ = id => document.getElementById(id);
 
@@ -45,6 +66,19 @@
     el.textContent = text;
     el.className = "badge " + type;
   }
+
+  // --- Tabs switching ---
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.onclick = () => {
+      const target = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+      $("tabCamera").classList.toggle("active", target === "camera");
+      $("tabDepth").classList.toggle("active", target === "depth");
+      if (target === "depth" && !depthState.pollingTimer) {
+        startDepthPolling();
+      }
+    };
+  });
 
   function updateModeButtons() {
     const polyBtn = $("stepPolyBtn");
@@ -167,14 +201,54 @@
     return ids;
   }
 
+  function runArucoPass(imgData, dictMode) {
+    const dicts = dictMode === "AUTO"
+      ? [ArucoMarker.DEFAULT_DICTIONARY, ArucoMarker.LEGACY_DICTIONARY]
+      : [dictMode];
+
+    const byId = new Map();
+    for (const dictName of dicts) {
+      const detector = MarkerDetection.getDetector(dictName);
+      const found = detector.detect(imgData) || [];
+      for (const m of found) {
+        if (!byId.has(m.id)) {
+          byId.set(m.id, { ...m, dictionary: dictName });
+        }
+      }
+      if (dictMode === "AUTO" && byId.size > 0) break;
+    }
+    return [...byId.values()];
+  }
+
   function detectFrame(w, h) {
     offCtx.drawImage(video, 0, 0, w, h);
-    const imgData = offCtx.getImageData(0, 0, w, h);
+    let imgData = offCtx.getImageData(0, 0, w, h);
+
     if (!window.AR || !window.MarkerDetection || !window.ArucoMarker) {
       throw new Error("Не подключены скрипты js-aruco2 (cv.js / aruco.js)");
     }
-    const detector = MarkerDetection.getDetector(ArucoMarker.DEFAULT_DICTIONARY);
-    const raw = detector.detect(imgData) || [];
+
+    const dictMode = $("dictSelect")?.value || "AUTO";
+    let raw = runArucoPass(imgData, dictMode);
+
+    // Fallback high-contrast pass for dim/low-contrast webcams
+    if (raw.length === 0) {
+      if (boostCanvas.width !== w || boostCanvas.height !== h) {
+        boostCanvas.width = w;
+        boostCanvas.height = h;
+      }
+      boostCtx.save();
+      boostCtx.filter = "contrast(1.45) brightness(1.06)";
+      boostCtx.drawImage(video, 0, 0, w, h);
+      boostCtx.restore();
+      raw = runArucoPass(boostCtx.getImageData(0, 0, w, h), dictMode);
+    }
+
+    const countBadge = $("markerDetectCount");
+    if (countBadge) {
+      countBadge.textContent = `Маркеров в кадре: ${raw.length}`;
+      countBadge.className = "badge " + (raw.length > 0 ? "ok" : "");
+    }
 
     const scaleM = ARENA_WIDTH_M / w;
     detectedMarkers = raw.map(m => {
@@ -183,10 +257,16 @@
       const dx = m.corners[1].x - m.corners[0].x;
       const dy = m.corners[1].y - m.corners[0].y;
       const heading = Math.atan2(dy, dx);
+      const radiusPx = Math.max(
+        28,
+        Math.hypot(m.corners[2].x - m.corners[0].x, m.corners[2].y - m.corners[0].y) * 0.65
+      );
       return {
         id: m.id,
+        dictionary: m.dictionary,
         cx,
         cy,
+        radiusPx,
         xM: cx * scaleM,
         yM: cy * scaleM,
         normX: (cx / w) * 1000,
@@ -255,9 +335,18 @@
       ctx.lineWidth = 3;
       ctx.stroke();
       if (polygon.closed) {
-        ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
+        ctx.fillStyle = "rgba(56, 189, 248, 0.14)";
         ctx.fill();
       }
+      polygon.points.forEach((p, idx) => {
+        ctx.beginPath();
+        ctx.arc(p.cx, p.cy, 7, 0, Math.PI * 2);
+        ctx.fillStyle = "#38bdf8";
+        ctx.fill();
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 10px sans-serif";
+        ctx.fillText(String(idx + 1), p.cx - 3, p.cy + 3.5);
+      });
       ctx.restore();
     }
 
@@ -301,13 +390,24 @@
     const reserved = usedMarkerIds();
     for (const m of detectedMarkers) {
       const isRobot = polygon.closed && !reserved.has(m.id);
+      const isHovered = hoveredMarkerId === m.id;
       ctx.save();
       ctx.beginPath();
       m.corners.forEach((c, i) => (i === 0 ? ctx.moveTo(c.x, c.y) : ctx.lineTo(c.x, c.y)));
       ctx.closePath();
-      ctx.strokeStyle = isRobot ? "#22c55e" : "#facc15";
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = isHovered ? "#38bdf8" : (isRobot ? "#22c55e" : "#facc15");
+      ctx.lineWidth = isHovered ? 4 : 3;
       ctx.stroke();
+
+      if (isHovered) {
+        ctx.beginPath();
+        ctx.arc(m.cx, m.cy, m.radiusPx, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       if (isRobot) {
         const len = 42;
@@ -319,11 +419,11 @@
         ctx.stroke();
       }
 
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fillRect(m.cx - 28, m.cy - 26, 56, 18);
-      ctx.fillStyle = isRobot ? "#4ade80" : "#fde047";
+      ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+      ctx.fillRect(m.cx - 32, m.cy - 28, 64, 19);
+      ctx.fillStyle = isHovered ? "#38bdf8" : (isRobot ? "#4ade80" : "#fde047");
       ctx.font = "bold 12px monospace";
-      ctx.fillText((isRobot ? "🤖#" : "ID ") + m.id, m.cx - 24, m.cy - 13);
+      ctx.fillText((isRobot ? "🤖#" : "ID ") + m.id, m.cx - 27, m.cy - 14);
       ctx.restore();
     }
   }
@@ -355,20 +455,39 @@
     requestAnimationFrame(loop);
   }
 
-  canvas.addEventListener("click", e => {
+  function findMarkerAtEvent(e) {
     const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    if (!rect.width || !rect.height) return null;
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const clickX = (e.clientX - rect.left) * scaleX;
     const clickY = (e.clientY - rect.top) * scaleY;
 
     let hit = null;
-    let bestDist = 45;
+    let bestDist = Infinity;
     for (const m of detectedMarkers) {
       const d = Math.hypot(m.cx - clickX, m.cy - clickY);
-      if (d < bestDist) { bestDist = d; hit = m; }
+      const limit = Math.max(55, m.radiusPx || 45);
+      if (d <= limit && d < bestDist) {
+        bestDist = d;
+        hit = m;
+      }
     }
+    return hit;
+  }
+
+  canvas.addEventListener("mousemove", e => {
+    const hit = findMarkerAtEvent(e);
+    hoveredMarkerId = hit ? hit.id : null;
+    canvas.style.cursor = hit ? "pointer" : "crosshair";
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    hoveredMarkerId = null;
+  });
+
+  canvas.addEventListener("click", e => {
+    const hit = findMarkerAtEvent(e);
     if (!hit) return;
 
     const pt = {
@@ -431,6 +550,7 @@
     $("zoneDraftInfo").textContent = "Выберите тип зоны и нажимайте на ArUco-маркеры.";
     $("startMissionBtn").disabled = false;
     syncToLocalServer();
+    if (depthState.connected) applyDepthSettings();
   };
 
   $("clearPolyBtn").onclick = () => {
@@ -485,6 +605,207 @@
     ).join("");
   }
 
+  // --- Depth Preview Integration (ARproject / depth_http_preview.py) ---
+  function normalizeDepthBaseUrl() {
+    const raw = ($("depthUrlInput")?.value || "http://localhost:8765").trim().replace(/\/+$/, "");
+    depthState.url = raw || "http://localhost:8765";
+    return depthState.url;
+  }
+
+  function sampleElevationFromDepthImage(img) {
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+    const cols = 16;
+    const rows = 12;
+    depthSampleCanvas.width = cols;
+    depthSampleCanvas.height = rows;
+    depthSampleCtx.drawImage(img, 0, 0, cols, rows);
+    const data = depthSampleCtx.getImageData(0, 0, cols, rows).data;
+    const maxH = Number($("depthMaxHeight")?.value || 0.5) || 0.5;
+    const grid = [];
+    let validSamples = 0;
+
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        const idx = (r * cols + c) * 4;
+        const red = data[idx];
+        const green = data[idx + 1];
+        const blue = data[idx + 2];
+        // Black pixels represent invalid/above-range depth in rendering.py
+        if (red + green + blue < 18) {
+          row.push(null);
+        } else {
+          validSamples++;
+          // Approximate Turbo colormap height estimate (warm red/yellow = higher)
+          const normalized = Math.max(0, Math.min(1, (red - blue + 255) / 510));
+          row.push(Math.round(normalized * maxH * 1000) / 1000);
+        }
+      }
+      grid.push(row);
+    }
+
+    depthState.elevationGrid = { cols, rows, maxHeightM: maxH, validSamples, grid };
+    if ($("depthRouteSummary")) {
+      $("depthRouteSummary").textContent =
+        `Сетка рельефа ${cols}×${rows}: валидных ячеек ${validSamples}/${cols * rows} (диапазон 0.00–${maxH.toFixed(2)} м). Передаётся в /robot-api/vision-sync.`;
+    }
+    return depthState.elevationGrid;
+  }
+
+  async function pollDepthOnce() {
+    if (depthState.busy) return;
+    depthState.busy = true;
+    const baseUrl = normalizeDepthBaseUrl();
+    try {
+      let stateData = null;
+      const stateRes = await fetch(baseUrl + "/api/v1/state", { cache: "no-store" });
+      if (stateRes.ok) {
+        stateData = await stateRes.json();
+      } else {
+        const statusRes = await fetch(baseUrl + "/status", { cache: "no-store" });
+        if (!statusRes.ok) throw new Error("HTTP " + statusRes.status);
+        const st = await statusRes.json();
+        stateData = {
+          stage: st.calibrated ? "ready" : "stereo_required",
+          projection: { width: 1280, height: 800, calibration_3d_accepted: Boolean(st.calibrated) },
+          snapshot: st.frame_ready ? { id: Date.now() } : null,
+          metrics: {}
+        };
+      }
+
+      depthState.connected = true;
+      depthState.projectionRevision = stateData.projection_revision || depthState.projectionRevision;
+      depthState.settingsRevision = Number(stateData.settings_revision || 0);
+      if (stateData.projection) {
+        depthState.projectionWidth = stateData.projection.width || 1280;
+        depthState.projectionHeight = stateData.projection.height || 800;
+        depthState.calibrated = Boolean(stateData.projection.calibration_3d_accepted) || stateData.stage === "ready";
+        if ($("depthProjSize")) {
+          $("depthProjSize").value = `${depthState.projectionWidth}×${depthState.projectionHeight}`;
+        }
+      }
+      depthState.stage = stateData.stage || "unknown";
+
+      const badge = $("depthStatusBadge");
+      if (badge) {
+        badge.textContent = depthState.calibrated ? "Подключено · метрическая глубина" : "Подключено · disparity / калибровка";
+        badge.className = "badge ok";
+      }
+      if ($("depthStageBadge")) {
+        $("depthStageBadge").textContent = "Стадия: " + depthState.stage;
+      }
+      const m = stateData.metrics || {};
+      if ($("depthMetricsText")) {
+        const meas = typeof m.measured_fraction === "number" ? Math.round(m.measured_fraction * 100) + "%" : "—";
+        const fill = typeof m.filled_fraction === "number" ? Math.round(m.filled_fraction * 100) + "%" : "—";
+        $("depthMetricsText").textContent =
+          `Кадров: ${m.update_count ?? "—"} · Измерено: ${meas} · Заполнено: ${fill}`;
+      }
+
+      if (stateData.snapshot) {
+        const img = $("depthPreviewImg");
+        const endpoint = stateData.projection_revision ? "/api/v1/preview.jpg" : "/frame.jpg";
+        img.onload = () => {
+          img.classList.add("visible");
+          if ($("depthPlaceholder")) $("depthPlaceholder").style.display = "none";
+          sampleElevationFromDepthImage(img);
+        };
+        img.src = `${baseUrl}${endpoint}?t=${Date.now()}`;
+      }
+    } catch {
+      depthState.connected = false;
+      const badge = $("depthStatusBadge");
+      if (badge) {
+        badge.textContent = "Нет связи с depth_http_preview.py";
+        badge.className = "badge warn";
+      }
+    } finally {
+      depthState.busy = false;
+    }
+  }
+
+  function startDepthPolling() {
+    if (depthState.pollingTimer) clearInterval(depthState.pollingTimer);
+    pollDepthOnce();
+    depthState.pollingTimer = setInterval(pollDepthOnce, 1000);
+  }
+
+  async function applyDepthSettings() {
+    const baseUrl = normalizeDepthBaseUrl();
+    const maxH = Math.min(0.5, Math.max(0.05, Number($("depthMaxHeight")?.value || 0.5)));
+    const gamma = Math.min(3.0, Math.max(0.1, Number($("depthGamma")?.value || 0.5)));
+    const interval = Math.min(10, Math.max(0.5, Number($("depthInterval")?.value || 1.0)));
+
+    if ($("turboMaxLabel")) $("turboMaxLabel").textContent = `${maxH.toFixed(2)} м (ниже / пол)`;
+
+    const w = canvas.width || 1280;
+    const h = canvas.height || 720;
+    const vertices = polygon.closed && polygon.points.length >= 3
+      ? polygon.points.map(p => [
+          Math.max(0, Math.min(1, Number((p.cx / w).toFixed(4)))),
+          Math.max(0, Math.min(1, Number((p.cy / h).toFixed(4))))
+        ])
+      : [[0, 0], [1, 0], [1, 1], [0, 1]];
+
+    try {
+      const res = await fetch(baseUrl + "/api/v1/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request_id: "roi-web-" + Date.now(),
+          schema_version: 1,
+          projection_revision: depthState.projectionRevision,
+          expected_settings_revision: depthState.settingsRevision,
+          height_range_m: [0.0, maxH],
+          above_range: "black",
+          palette_gamma: gamma,
+          update_interval_s: interval,
+          roi: {
+            coordinate_space: "projector_normalized",
+            vertices
+          }
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        depthState.settingsRevision = data.settings_revision ?? depthState.settingsRevision + 1;
+        if ($("depthActionMsg")) {
+          $("depthActionMsg").textContent = `Настройки и ROI (${vertices.length} т.) применены (rev ${depthState.settingsRevision}).`;
+        }
+      } else if ($("depthActionMsg")) {
+        $("depthActionMsg").textContent = data.error?.message || "Сервер глубины отклонил настройки.";
+      }
+    } catch {
+      if ($("depthActionMsg")) $("depthActionMsg").textContent = "Ошибка отправки настроек на сервер глубины.";
+    }
+  }
+
+  async function triggerDepthRescan() {
+    const baseUrl = normalizeDepthBaseUrl();
+    try {
+      const res = await fetch(baseUrl + "/api/v1/actions/rescan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request_id: "rescan-" + Date.now(),
+          projection_revision: depthState.projectionRevision
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if ($("depthActionMsg")) {
+        $("depthActionMsg").textContent = res.ok
+          ? "Команда пересканирования отправлена."
+          : (data.error?.message || "Не удалось выполнить rescan.");
+      }
+    } catch {
+      if ($("depthActionMsg")) $("depthActionMsg").textContent = "Нет связи с сервером глубины.";
+    }
+  }
+
+  if ($("depthConnectBtn")) $("depthConnectBtn").onclick = startDepthPolling;
+  if ($("depthApplySettingsBtn")) $("depthApplySettingsBtn").onclick = applyDepthSettings;
+  if ($("depthRescanBtn")) $("depthRescanBtn").onclick = triggerDepthRescan;
+
   async function syncToLocalServer() {
     if (!polygon.closed) return;
     const payload = {
@@ -500,6 +821,13 @@
         y: r.y,
         heading: r.heading
       })),
+      depth: {
+        connected: depthState.connected,
+        url: depthState.url,
+        calibrated: depthState.calibrated,
+        stage: depthState.stage,
+        elevation_grid: depthState.elevationGrid
+      },
       priority: { lengthWeight: 0.5, elevationWeight: 0.5 }
     };
 
@@ -530,7 +858,11 @@
     const res = await fetch("/robot-api/auto-route/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lengthWeight: 0.5, elevationWeight: 0.5 })
+      body: JSON.stringify({
+        lengthWeight: 0.5,
+        elevationWeight: 0.5,
+        depthUrl: depthState.connected ? depthState.url : null
+      })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

@@ -3,21 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ROI — Разметка полигона, зон и роботов по камере</title>
+  <title>ROI — Разметка арены по камере, карта глубины и автопилот</title>
   <style>
     body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; }
-    header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; }
-    header a { color: #38bdf8; text-decoration: none; font-weight: 600; }
-    .layout { display: grid; grid-template-columns: 1fr 380px; gap: 16px; padding: 16px; height: calc(100vh - 57px); box-sizing: border-box; }
-    .stage-wrap { position: relative; background: #020617; border: 1px solid #334155; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 20px; background: #1e293b; border-bottom: 1px solid #334155; flex-wrap: wrap; }
+    header a { color: #38bdf8; text-decoration: none; font-weight: 600; font-size: 13px; }
+    .tabs { display: flex; gap: 8px; }
+    .tab-btn { padding: 7px 14px; border-radius: 7px; border: 1px solid #475569; background: #0f172a; color: #cbd5e1; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .tab-btn:hover { background: #334155; color: #fff; }
+    .tab-btn.active { background: #0284c7; border-color: #38bdf8; color: #fff; }
+    .tab-view { display: none; }
+    .tab-view.active { display: grid; }
+    .layout { grid-template-columns: 1fr 390px; gap: 16px; padding: 16px; height: calc(100vh - 58px); box-sizing: border-box; }
+    .stage-wrap { position: relative; background: #020617; border: 1px solid #334155; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; flex-direction: column; }
     video { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
-    canvas { width: 100%; height: 100%; object-fit: contain; cursor: crosshair; }
+    canvas, .depth-img { width: 100%; height: 100%; object-fit: contain; }
+    canvas { cursor: crosshair; }
+    .depth-img { display: none; }
+    .depth-img.visible { display: block; }
+    .depth-placeholder { color: #94a3b8; font-size: 14px; text-align: center; padding: 24px; max-width: 440px; line-height: 1.5; }
     .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
     .card { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; }
     .card h3 { margin: 0 0 8px; font-size: 15px; color: #e2e8f0; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-    button, select, input { padding: 8px 12px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; font-size: 13px; cursor: pointer; }
-    button:hover { background: #334155; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+    button, select, input { padding: 8px 12px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #f8fafc; font-size: 13px; }
+    button, select { cursor: pointer; }
+    input[type="text"], input[type="number"] { cursor: text; }
+    button:hover:not(:disabled) { background: #334155; }
     button.primary { background: #0284c7; border-color: #38bdf8; font-weight: 600; }
     button.success { background: #15803d; border-color: #22c55e; font-weight: 600; }
     button.danger { background: #b91c1c; border-color: #ef4444; font-weight: 600; }
@@ -29,18 +41,27 @@
     .manual-box.active { display: block; }
     .dpad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-width: 210px; margin: 10px auto 0; }
     .list { font-size: 12px; color: #cbd5e1; line-height: 1.5; max-height: 120px; overflow-y: auto; }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .field-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #94a3b8; }
+    .turbo-bar { height: 10px; border-radius: 5px; margin-top: 8px; background: linear-gradient(90deg, #30123b, #4145ab, #2ab07f, #b8de29, #f98e09, #7a0403); border: 1px solid #475569; }
+    .turbo-labels { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 3px; }
   </style>
 </head>
 <body>
 <header>
-  <div><strong>ROI</strong> — Разметка арены по камере и автопилот</div>
+  <div><strong>ROI</strong> — Камера, ArUco-разметка и глубина</div>
+  <div class="tabs" role="tablist">
+    <button id="tabBtnCamera" class="tab-btn active" type="button" data-tab="camera">Камера и ArUco-разметка</button>
+    <button id="tabBtnDepth" class="tab-btn" type="button" data-tab="depth">Карта глубины (ARproject)</button>
+  </div>
   <div class="row" style="margin:0">
     <span id="syncStatus" class="badge">Ожидание камеры...</span>
     <a href="welcome.html">← На главную</a>
   </div>
 </header>
 
-<div class="layout">
+<!-- TAB 1: CAMERA & ARUCO -->
+<div id="tabCamera" class="layout tab-view active">
   <div class="stage-wrap">
     <video id="camVideo" autoplay playsinline muted></video>
     <canvas id="camCanvas"></canvas>
@@ -48,13 +69,21 @@
 
   <div class="panel">
     <div class="card">
-      <h3>0. Источник видео</h3>
+      <h3>0. Источник видео и распознавание</h3>
       <div class="row">
         <select id="cameraSelect"></select>
-        <button id="startCamBtn" class="primary">Включить камеру</button>
+        <button id="startCamBtn" class="primary" type="button">Включить камеру</button>
+      </div>
+      <div class="row" style="justify-content:space-between">
+        <span id="markerDetectCount" class="badge">Маркеров в кадре: 0</span>
+        <select id="dictSelect" title="Словарь ArUco">
+          <option value="AUTO">Словарь: Авто (4x4_50 + Original)</option>
+          <option value="DICT_4X4_50">DICT_4X4_50 (0..49)</option>
+          <option value="ARUCO_ORIGINAL">ARUCO_ORIGINAL (0..1023)</option>
+        </select>
       </div>
       <div style="font-size:12px;color:#94a3b8;margin-top:6px">
-        Нажимайте прямо на подсвеченные ArUco-маркеры на видео для добавления вершин.
+        Наводите курсор и нажимайте прямо на подсвеченные ArUco-маркеры на видео для добавления вершин.
       </div>
     </div>
 
@@ -94,7 +123,7 @@
         <button id="stopAllBtn" class="danger" type="button">Стоп</button>
       </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:6px">
-        Приоритет траектории: 50% длина пути + 50% перепад высот. Синхронизация каждые 2 сек.
+        Приоритет траектории: 50% длина пути + 50% перепад высот (учитывает карту глубины ARproject).
       </div>
     </div>
 
@@ -114,6 +143,71 @@
       </div>
       <div class="row" style="margin-top:10px">
         <button id="resumeAutoBtn" class="success" type="button">Сбросить аварию и вернуть автопилот</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB 2: DEPTH MAP FROM ARPROJECT -->
+<div id="tabDepth" class="layout tab-view">
+  <div class="stage-wrap">
+    <img id="depthPreviewImg" class="depth-img" alt="Карта глубины ARproject">
+    <div id="depthPlaceholder" class="depth-placeholder">
+      <strong>Карта глубин ARproject</strong><br><br>
+      Подключитесь к локальному серверу <code>depth_http_preview.py</code> (по умолчанию <code>http://localhost:8765</code>), чтобы получать метрическую карту высот в палитре Turbo и передавать перепады рельефа в планировщик траектории.
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card">
+      <h3>Подключение к ARproject (DepthPreview)</h3>
+      <div class="row">
+        <input id="depthUrlInput" type="text" value="http://localhost:8765" style="flex:1" placeholder="http://localhost:8765">
+        <button id="depthConnectBtn" class="primary" type="button">Подключить</button>
+      </div>
+      <div class="row">
+        <span id="depthStatusBadge" class="badge">Отключено</span>
+        <span id="depthStageBadge" class="badge">Стадия: —</span>
+      </div>
+      <div id="depthMetricsText" style="font-size:12px;color:#94a3b8;margin-top:8px">
+        Кадр: ожидание · Измерено: — · Заполнено: —
+      </div>
+      <div class="turbo-bar"></div>
+      <div class="turbo-labels">
+        <span id="turboMinLabel">0.00 м (выше / ближе)</span>
+        <span id="turboMaxLabel">0.50 м (ниже / пол)</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Параметры карты высот</h3>
+      <div class="field-grid">
+        <label>Макс. высота, м (до 0.50)
+          <input id="depthMaxHeight" type="number" min="0.05" max="0.50" step="0.01" value="0.50">
+        </label>
+        <label>Гамма палитры (0.1–3.0)
+          <input id="depthGamma" type="number" min="0.1" max="3.0" step="0.1" value="0.5">
+        </label>
+        <label>Интервал обновления, с
+          <input id="depthInterval" type="number" min="0.5" max="10" step="0.5" value="1.0">
+        </label>
+        <label>Разрешение проектора
+          <input id="depthProjSize" type="text" value="1280×800" readonly>
+        </label>
+      </div>
+      <div class="row">
+        <button id="depthApplySettingsBtn" class="primary" type="button">Применить настройки и ROI</button>
+        <button id="depthRescanBtn" type="button">Пересканировать</button>
+      </div>
+      <div id="depthActionMsg" style="font-size:12px;color:#94a3b8;margin-top:6px">
+        Замкнутый полигон с вкладки «Камера и ArUco-разметка» автоматически передаётся как ROI.
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Передача рельефа в автопилот</h3>
+      <div id="depthRouteSummary" style="font-size:12px;color:#cbd5e1;line-height:1.5">
+        Сетка высот будет сформирована после получения кадра глубины и замыкания полигона арены.
       </div>
     </div>
   </div>
